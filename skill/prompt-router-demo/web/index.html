@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Anthropic Agent Skills - 渐进披露架构</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="header">
+      <h1>🚀 Anthropic Agent Skills</h1>
+      <p>官方标准实现 - YAML Frontmatter + 渐进披露</p>
+      <div class="header-info">
+        <span>会话: <code id="session-id">未开始</code></span>
+        <span>API: <code id="api-url">http://127.0.0.1:8010</code></span>
+      </div>
+    </header>
+
+    <main class="container">
+      <!-- 左侧：输入和输出 -->
+      <div class="main-panel">
+        <section class="panel input-panel">
+          <h2>💬 对话</h2>
+        <label for="question">输入问题</label>
+          <textarea 
+            id="question" 
+            rows="4" 
+            placeholder="例如：如何测试SQL注入漏洞？"></textarea>
+        <div class="actions">
+            <button id="send-btn" class="btn-primary">📤 发送</button>
+            <button id="clear-btn" class="btn-secondary">🔄 清除会话</button>
+            <span id="status" class="status">✨ 就绪</span>
+        </div>
+      </section>
+
+        <section class="panel output-panel">
+          <h2>🤖 AI 回复</h2>
+          <div class="meta-info">
+            <div class="meta-row">
+              <span class="meta-label">涉及技能:</span>
+              <strong id="segments" class="meta-value">-</strong>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">加载状态:</span>
+              <strong id="newly-loaded" class="meta-value">-</strong>
+            </div>
+        </div>
+        <pre id="answer" class="answer">等待输入...</pre>
+      </section>
+      </div>
+
+      <!-- 右侧：Skills 和历史 -->
+      <aside class="sidebar">
+        <section class="panel skills-panel">
+          <h2>📦 可用技能</h2>
+          <div id="skills-list" class="skills-list">
+            <p>加载中...</p>
+        </div>
+      </section>
+
+        <section class="panel history-panel">
+          <h2>📜 对话历史</h2>
+          <div id="history" class="history-list">
+            <p>暂无历史记录</p>
+        </div>
+      </section>
+      </aside>
+    </main>
+
+    <footer class="footer">
+      <p>
+        <strong>Anthropic Agent Skills 官方标准：</strong>
+        Level 1 (YAML frontmatter) 始终预加载 → Level 2 (Markdown instructions) 按需激活 → Level 3 (Resources) 实际使用时加载
+      </p>
+      <p>
+        💡 <em>无关键字匹配，由 AI 基于 description 自主判断相关性</em> | 
+        ✅ <em>标准 SKILL.md 格式，完全符合 Anthropic 官方规范</em>
+      </p>
+    </footer>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
