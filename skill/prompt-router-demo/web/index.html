@@ -52,7 +52,10 @@
       <!-- 右侧：Skills 和历史 -->
       <aside class="sidebar">
         <section class="panel skills-panel">
-          <h2>📦 可用技能</h2>
+          <div class="panel-header">
+            <h2>📦 可用技能</h2>
+            <button id="add-skill-btn" class="btn-add" title="新建技能">+ 新建</button>
+          </div>
           <div id="skills-list" class="skills-list">
             <p>加载中...</p>
         </div>
@@ -77,6 +80,75 @@
         ✅ <em>标准 SKILL.md 格式，完全符合 Anthropic 官方规范</em>
       </p>
     </footer>
+
+    <!-- 技能管理模态框 -->
+    <div id="skill-modal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 id="modal-title">新建技能</h3>
+          <button id="modal-close" class="modal-close">&times;</button>
+        </div>
+        <form id="skill-form">
+          <input type="hidden" id="skill-id" value="">
+
+          <div class="form-group">
+            <label for="skill-name">技能名称 <span class="required">*</span></label>
+            <input type="text" id="skill-name" placeholder="例如：sql_injection_scanner" required>
+            <small>唯一标识符，使用小写字母和下划线</small>
+          </div>
+
+          <div class="form-group">
+            <label for="skill-description">技能描述 <span class="required">*</span></label>
+            <input type="text" id="skill-description" placeholder="简短描述技能的功能" required>
+            <small>Level 1 元数据，用于 AI 判断是否需要加载此技能</small>
+          </div>
+
+          <div class="form-group">
+            <label for="skill-instructions">详细指令 <span class="required">*</span></label>
+            <textarea id="skill-instructions" rows="10" placeholder="完整的技能指令，支持 Markdown 格式..." required></textarea>
+            <small>Level 2 内容，当技能被激活时会加载到 AI 的上下文中</small>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group checkbox-group">
+              <label>
+                <input type="checkbox" id="skill-always-load">
+                始终加载（核心技能）
+              </label>
+              <small>勾选后此技能会始终包含在 AI 的上下文中</small>
+            </div>
+
+            <div class="form-group">
+              <label for="skill-version">版本</label>
+              <input type="text" id="skill-version" value="1.0.0" placeholder="1.0.0">
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button type="button" id="cancel-btn" class="btn-secondary">取消</button>
+            <button type="submit" id="save-btn" class="btn-primary">保存技能</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- 确认删除模态框 -->
+    <div id="confirm-modal" class="modal">
+      <div class="modal-content modal-small">
+        <div class="modal-header">
+          <h3>确认删除</h3>
+          <button class="modal-close confirm-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p>确定要删除技能 <strong id="delete-skill-name"></strong> 吗？</p>
+          <p class="warning-text">此操作不可撤销！</p>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn-secondary confirm-close">取消</button>
+          <button type="button" id="confirm-delete-btn" class="btn-danger">确认删除</button>
+        </div>
+      </div>
+    </div>
 
     <script src="./app.js"></script>
   </body>

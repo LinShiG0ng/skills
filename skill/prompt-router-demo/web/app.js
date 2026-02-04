@@ -1,6 +1,6 @@
 /**
  * Anthropic Agent Skills 渐进披露架构 - Web 界面
- * 支持会话管理和 skills 可视化
+ * 支持会话管理、skills 可视化和技能管理
  */
 
 (() => {
@@ -11,7 +11,7 @@
   const apiSkills = `${apiBase}/api/skills`;
   const apiSession = `${apiBase}/api/session`;
 
-  // DOM 元素
+  // DOM 元素 - 对话相关
   const statusEl = document.getElementById("status");
   const segmentsEl = document.getElementById("segments");
   const answerEl = document.getElementById("answer");
@@ -24,10 +24,30 @@
   const skillsListEl = document.getElementById("skills-list");
   const historyEl = document.getElementById("history");
 
+  // DOM 元素 - 技能管理相关
+  const addSkillBtn = document.getElementById("add-skill-btn");
+  const skillModal = document.getElementById("skill-modal");
+  const modalTitle = document.getElementById("modal-title");
+  const modalCloseBtn = document.getElementById("modal-close");
+  const skillForm = document.getElementById("skill-form");
+  const cancelBtn = document.getElementById("cancel-btn");
+  const skillIdInput = document.getElementById("skill-id");
+  const skillNameInput = document.getElementById("skill-name");
+  const skillDescInput = document.getElementById("skill-description");
+  const skillInstructionsInput = document.getElementById("skill-instructions");
+  const skillAlwaysLoadInput = document.getElementById("skill-always-load");
+  const skillVersionInput = document.getElementById("skill-version");
+
+  // DOM 元素 - 确认删除模态框
+  const confirmModal = document.getElementById("confirm-modal");
+  const deleteSkillNameEl = document.getElementById("delete-skill-name");
+  const confirmDeleteBtn = document.getElementById("confirm-delete-btn");
+
   // 状态
   let currentSessionId = null;
   let conversationHistory = [];
   let availableSkills = [];
+  let skillToDelete = null; // 待删除的技能信息
 
   // 初始化
   apiUrlEl.textContent = apiBase;
@@ -80,8 +100,14 @@
       html += "<div class='skills-category'>";
       html += "<h4>🔵 核心技能（始终激活）</h4><ul>";
       baseSkills.forEach(skill => {
-        html += `<li data-skill="${skill.name}">
-          <strong>${skill.name}</strong>: ${skill.description}
+        html += `<li data-skill="${skill.name}" data-skill-id="${skill.id}">
+          <div class="skill-info">
+            <strong>${skill.name}</strong>: ${skill.description}
+          </div>
+          <div class="skill-actions">
+            <button class="btn-icon btn-edit" onclick="window.editSkill(${skill.id})" title="编辑">✏️</button>
+            <button class="btn-icon btn-delete" onclick="window.deleteSkill(${skill.id}, '${skill.name}')" title="删除">🗑️</button>
+          </div>
         </li>`;
       });
       html += "</ul></div>";
@@ -91,8 +117,14 @@
       html += "<div class='skills-category'>";
       html += "<h4>⚪ 专业技能（按需激活）</h4><ul>";
       optionalSkills.forEach(skill => {
-        html += `<li data-skill="${skill.name}" class="optional-skill">
-          <strong>${skill.name}</strong>: ${skill.description}
+        html += `<li data-skill="${skill.name}" data-skill-id="${skill.id}" class="optional-skill">
+          <div class="skill-info">
+            <strong>${skill.name}</strong>: ${skill.description}
+          </div>
+          <div class="skill-actions">
+            <button class="btn-icon btn-edit" onclick="window.editSkill(${skill.id})" title="编辑">✏️</button>
+            <button class="btn-icon btn-delete" onclick="window.deleteSkill(${skill.id}, '${skill.name}')" title="删除">🗑️</button>
+          </div>
         </li>`;
       });
       html += "</ul></div>";
@@ -264,16 +296,197 @@
     setStatus("✨ 会话已清除，开始新对话");
   };
 
-  // 事件监听
+  // ==================== 技能管理功能 ====================
+
+  // 打开新建技能模态框
+  function openCreateModal() {
+    modalTitle.textContent = "新建技能";
+    skillForm.reset();
+    skillIdInput.value = "";
+    skillVersionInput.value = "1.0.0";
+    skillModal.classList.add("active");
+    skillNameInput.focus();
+  }
+
+  // 打开编辑技能模态框
+  async function openEditModal(skillId) {
+    try {
+      const response = await fetch(`${apiSkills}/${skillId}`);
+      if (!response.ok) {
+        throw new Error("获取技能详情失败");
+      }
+      const skill = await response.json();
+
+      modalTitle.textContent = "编辑技能";
+      skillIdInput.value = skill.id;
+      skillNameInput.value = skill.name;
+      skillDescInput.value = skill.description;
+      skillInstructionsInput.value = skill.instructions;
+      skillAlwaysLoadInput.checked = skill.always_load;
+      skillVersionInput.value = skill.version || "1.0.0";
+
+      skillModal.classList.add("active");
+      skillNameInput.focus();
+    } catch (error) {
+      alert("加载技能详情失败: " + error.message);
+    }
+  }
+
+  // 关闭技能模态框
+  function closeSkillModal() {
+    skillModal.classList.remove("active");
+  }
+
+  // 保存技能（创建或更新）
+  async function saveSkill(e) {
+    e.preventDefault();
+
+    const skillId = skillIdInput.value;
+    const isEdit = !!skillId;
+
+    const skillData = {
+      name: skillNameInput.value.trim(),
+      description: skillDescInput.value.trim(),
+      instructions: skillInstructionsInput.value.trim(),
+      always_load: skillAlwaysLoadInput.checked,
+      version: skillVersionInput.value.trim() || "1.0.0",
+      enabled: true
+    };
+
+    // 验证
+    if (!skillData.name || !skillData.description || !skillData.instructions) {
+      alert("请填写所有必填字段");
+      return;
+    }
+
+    try {
+      const url = isEdit ? `${apiSkills}/${skillId}` : apiSkills;
+      const method = isEdit ? "PUT" : "POST";
+
+      const response = await fetch(url, {
+        method: method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(skillData)
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || "保存失败");
+      }
+
+      closeSkillModal();
+      await loadSkills(); // 重新加载技能列表
+      setStatus(`✅ 技能 "${skillData.name}" ${isEdit ? "更新" : "创建"}成功`);
+    } catch (error) {
+      alert("保存技能失败: " + error.message);
+    }
+  }
+
+  // 打开删除确认模态框
+  function openDeleteConfirm(skillId, skillName) {
+    skillToDelete = { id: skillId, name: skillName };
+    deleteSkillNameEl.textContent = skillName;
+    confirmModal.classList.add("active");
+  }
+
+  // 关闭删除确认模态框
+  function closeConfirmModal() {
+    confirmModal.classList.remove("active");
+    skillToDelete = null;
+  }
+
+  // 确认删除技能
+  async function confirmDelete() {
+    if (!skillToDelete) return;
+
+    try {
+      const response = await fetch(`${apiSkills}/${skillToDelete.id}`, {
+        method: "DELETE"
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || "删除失败");
+      }
+
+      closeConfirmModal();
+      await loadSkills(); // 重新加载技能列表
+      setStatus(`✅ 技能 "${skillToDelete.name}" 已删除`);
+    } catch (error) {
+      alert("删除技能失败: " + error.message);
+    }
+  }
+
+  // 暴露给全局，供 onclick 使用
+  window.editSkill = openEditModal;
+  window.deleteSkill = openDeleteConfirm;
+
+  // ==================== 事件监听 ====================
+
+  // 对话相关
   sendBtn.addEventListener("click", sendQuestion);
   if (clearBtn) {
     clearBtn.addEventListener("click", clearSession);
   }
-  
+
   questionEl.addEventListener("keypress", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       sendQuestion();
+    }
+  });
+
+  // 技能管理相关
+  if (addSkillBtn) {
+    addSkillBtn.addEventListener("click", openCreateModal);
+  }
+
+  if (modalCloseBtn) {
+    modalCloseBtn.addEventListener("click", closeSkillModal);
+  }
+
+  if (cancelBtn) {
+    cancelBtn.addEventListener("click", closeSkillModal);
+  }
+
+  if (skillForm) {
+    skillForm.addEventListener("submit", saveSkill);
+  }
+
+  // 确认删除模态框
+  if (confirmDeleteBtn) {
+    confirmDeleteBtn.addEventListener("click", confirmDelete);
+  }
+
+  // 关闭确认模态框的按钮们
+  document.querySelectorAll(".confirm-close").forEach(btn => {
+    btn.addEventListener("click", closeConfirmModal);
+  });
+
+  // 点击模态框背景关闭
+  if (skillModal) {
+    skillModal.addEventListener("click", (e) => {
+      if (e.target === skillModal) {
+        closeSkillModal();
+      }
+    });
+  }
+
+  if (confirmModal) {
+    confirmModal.addEventListener("click", (e) => {
+      if (e.target === confirmModal) {
+        closeConfirmModal();
+      }
+    });
+  }
+
+  // ESC 键关闭模态框
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      closeSkillModal();
+      closeConfirmModal();
     }
   });
 
