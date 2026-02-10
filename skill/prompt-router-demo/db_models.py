@@ -91,23 +91,35 @@ class SkillsDatabase:
         instructions: str,
         always_load: bool = False,
         enabled: bool = True,
-        version: str = "1.0.0"
+        version: str = "1.0.0",
+        level: int = 1,
+        parent_skill_id: int = None
     ) -> int:
         """
         创建新的 Skill
-        
+
+        Args:
+            name: 技能名称
+            description: 技能描述
+            instructions: 详细指令
+            always_load: 是否始终加载
+            enabled: 是否启用
+            version: 版本号
+            level: 技能级别 (1=一级技能, 2=二级技能)
+            parent_skill_id: 父技能ID（仅二级技能需要）
+
         Returns:
             新创建的 skill ID
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO skills (name, description, instructions, always_load, enabled, version)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """, (name, description, instructions, always_load, enabled, version))
+                INSERT INTO skills (name, description, instructions, always_load, enabled, version, level, parent_skill_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """, (name, description, instructions, always_load, enabled, version, level, parent_skill_id))
             conn.commit()
             skill_id = cursor.lastrowid
-            logger.info(f"[Database] 创建 Skill: {name} (ID: {skill_id})")
+            logger.info(f"[Database] 创建 Skill: {name} (ID: {skill_id}, Level: {level})")
             return skill_id
     
     def get_skill_by_name(self, name: str) -> Optional[Dict]:
@@ -144,6 +156,51 @@ class SkillsDatabase:
             cursor.execute("SELECT * FROM skills WHERE always_load = TRUE AND enabled = TRUE")
             rows = cursor.fetchall()
             return list(rows)
+
+    def get_top_level_skills(self, enabled_only: bool = True) -> List[Dict]:
+        """获取所有一级技能（level=1 的技能）"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            if enabled_only:
+                cursor.execute("SELECT * FROM skills WHERE level = 1 AND enabled = TRUE ORDER BY always_load DESC, name")
+            else:
+                cursor.execute("SELECT * FROM skills WHERE level = 1 ORDER BY always_load DESC, name")
+            rows = cursor.fetchall()
+            return list(rows)
+
+    def get_child_skills(self, parent_skill_id: int, enabled_only: bool = True) -> List[Dict]:
+        """获取指定技能的所有子技能"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            if enabled_only:
+                cursor.execute(
+                    "SELECT * FROM skills WHERE parent_skill_id = %s AND enabled = TRUE ORDER BY name",
+                    (parent_skill_id,)
+                )
+            else:
+                cursor.execute(
+                    "SELECT * FROM skills WHERE parent_skill_id = %s ORDER BY name",
+                    (parent_skill_id,)
+                )
+            rows = cursor.fetchall()
+            return list(rows)
+
+    def get_skills_by_level(self, level: int, enabled_only: bool = True) -> List[Dict]:
+        """获取指定级别的所有技能"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            if enabled_only:
+                cursor.execute(
+                    "SELECT * FROM skills WHERE level = %s AND enabled = TRUE ORDER BY name",
+                    (level,)
+                )
+            else:
+                cursor.execute(
+                    "SELECT * FROM skills WHERE level = %s ORDER BY name",
+                    (level,)
+                )
+            rows = cursor.fetchall()
+            return list(rows)
     
     def update_skill(
         self,
@@ -153,12 +210,14 @@ class SkillsDatabase:
         instructions: str = None,
         always_load: bool = None,
         enabled: bool = None,
-        version: str = None
+        version: str = None,
+        level: int = None,
+        parent_skill_id: int = None
     ) -> bool:
         """更新 Skill"""
         updates = []
         values = []
-        
+
         if name is not None:
             updates.append("name = %s")
             values.append(name)
@@ -177,13 +236,19 @@ class SkillsDatabase:
         if version is not None:
             updates.append("version = %s")
             values.append(version)
-        
+        if level is not None:
+            updates.append("level = %s")
+            values.append(level)
+        if parent_skill_id is not None:
+            updates.append("parent_skill_id = %s")
+            values.append(parent_skill_id if parent_skill_id != 0 else None)
+
         if not updates:
             return False
-        
+
         updates.append("updated_at = CURRENT_TIMESTAMP")
         values.append(skill_id)
-        
+
         with self.get_connection() as conn:
             cursor = conn.cursor()
             query = f"UPDATE skills SET {', '.join(updates)} WHERE id = %s"

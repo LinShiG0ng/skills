@@ -23,12 +23,16 @@ class DBSkill:
     """
     数据库支持的 Skill 类
     从数据库加载，而不是文件系统
+    支持层级结构：一级技能可以包含二级子技能
     """
-    
+
+    # 子技能引用标记格式: @use:skill_name 或 [[skill:skill_name]]
+    CHILD_SKILL_PATTERN = r'@use:(\w+)|(?:\[\[skill:(\w+)\]\])'
+
     def __init__(self, skill_data: dict, db: SkillsDatabase):
         """
         从数据库记录初始化 Skill
-        
+
         Args:
             skill_data: 数据库记录字典
             db: 数据库实例
@@ -40,16 +44,20 @@ class DBSkill:
         self.always_load = bool(skill_data['always_load'])
         self.enabled = bool(skill_data['enabled'])
         self.version = skill_data.get('version', '1.0.0')
+        self.level = skill_data.get('level', 1)
+        self.parent_skill_id = skill_data.get('parent_skill_id')
         self._db = db
-        
+
         # 兼容性：metadata 字典
         self.metadata = {
             'name': self.name,
             'description': self.description
         }
-        
+
         # 加载资源列表
         self._resources = None
+        # 缓存子技能
+        self._child_skills = None
     
     @property
     def resources(self) -> List[dict]:
@@ -87,49 +95,95 @@ class DBSkill:
         """列出所有资源名称"""
         return [r['resource_name'] for r in self.resources]
 
+    @property
+    def child_skills(self) -> List[dict]:
+        """懒加载子技能列表"""
+        if self._child_skills is None:
+            self._child_skills = self._db.get_child_skills(self.id)
+        return self._child_skills
+
+    def get_referenced_child_skills(self) -> List[str]:
+        """
+        解析 instructions 中引用的子技能名称
+        支持格式: @use:skill_name 或 [[skill:skill_name]]
+        """
+        import re
+        pattern = self.CHILD_SKILL_PATTERN
+        matches = re.findall(pattern, self.instructions)
+        # matches 是元组列表，每个元组包含两个捕获组
+        referenced = []
+        for match in matches:
+            # match[0] 是 @use:skill_name 格式
+            # match[1] 是 [[skill:skill_name]] 格式
+            skill_name = match[0] or match[1]
+            if skill_name and skill_name not in referenced:
+                referenced.append(skill_name)
+        return referenced
+
+    def is_top_level(self) -> bool:
+        """判断是否为一级技能"""
+        return self.level == 1
+
 
 class DBSkillManager:
     """
     数据库支持的 SkillManager
     使用数据库作为 Skills 的存储后端
+    支持层级化技能结构：一级技能可见，二级技能嵌套加载
     """
-    
+
     def __init__(self, db: SkillsDatabase = None):
         self.db = db or get_database()
-        self.skills: Dict[str, DBSkill] = {}
+        self.skills: Dict[str, DBSkill] = {}  # 所有技能（包括一级和二级）
+        self.top_level_skills: Dict[str, DBSkill] = {}  # 仅一级技能
         self.sessions: Dict[str, dict] = {}
         self._load_skills()
-    
+
     def _load_skills(self):
         """从数据库加载所有 Skills 的元数据"""
         logger.info("=" * 60)
-        logger.info("DBSkillManager 初始化（数据库后端）")
+        logger.info("DBSkillManager 初始化（数据库后端 - 层级化支持）")
         logger.info("=" * 60)
-        
+
         skill_records = self.db.get_all_skills(enabled_only=True)
-        
+
+        level_1_count = 0
+        level_2_count = 0
+
         for record in skill_records:
             skill = DBSkill(record, self.db)
             self.skills[skill.name] = skill
-            
+
+            # 仅一级技能加入 top_level_skills
+            if skill.level == 1:
+                self.top_level_skills[skill.name] = skill
+                level_1_count += 1
+            else:
+                level_2_count += 1
+
             logger.info(f"加载 Skill: {skill.name}")
             logger.info(f"  - ID: {skill.id}")
+            logger.info(f"  - Level: {skill.level}")
+            logger.info(f"  - Parent: {skill.parent_skill_id or 'None'}")
             logger.info(f"  - Always Load: {skill.always_load}")
             logger.info(f"  - Version: {skill.version}")
             logger.info(f"  - Description: {skill.description[:60]}...")
-        
+
         print(f"\n[DBSkillManager] Loaded {len(self.skills)} skills from database")
-        
-        always_load_skills = [s.name for s in self.skills.values() if s.always_load]
-        optional_skills = [s.name for s in self.skills.values() if not s.always_load]
+        print(f"  - Level 1 (Top-level): {level_1_count}")
+        print(f"  - Level 2 (Child): {level_2_count}")
+
+        always_load_skills = [s.name for s in self.top_level_skills.values() if s.always_load]
+        optional_skills = [s.name for s in self.top_level_skills.values() if not s.always_load]
         print(f"  - Always Load: {', '.join(always_load_skills) or 'None'}")
         print(f"  - On-Demand: {', '.join(optional_skills) or 'None'}")
-        
+
         logger.info("=" * 60)
     
     def reload_skills(self):
         """重新加载所有 Skills（热更新）"""
         self.skills.clear()
+        self.top_level_skills.clear()
         self._load_skills()
         print("[DBSkillManager] Skills reloaded")
     
@@ -146,57 +200,81 @@ class DBSkillManager:
         return self.skills[skill_name].list_resources()
     
     def get_all_metadata_summary(self) -> str:
-        """生成所有 skills 的元数据摘要（Level 1）"""
+        """
+        生成所有一级技能的元数据摘要（Level 1）
+        注意：只展示一级技能，二级技能的描述不会出现在初始摘要中
+        """
         lines = ["# Available Skills\n"]
         lines.append("The following skills are available for activation based on task requirements:\n")
-        
-        # 始终加载的 skills
-        always_load = [s for s in self.skills.values() if s.always_load]
+
+        # 始终加载的一级 skills
+        always_load = [s for s in self.top_level_skills.values() if s.always_load]
         if always_load:
             lines.append("## Core Skills (Always Active)")
             for skill in always_load:
                 lines.append(skill.get_metadata_summary())
             lines.append("")
-        
-        # 可选 skills
-        optional = [s for s in self.skills.values() if not s.always_load]
+
+        # 可选的一级 skills
+        optional = [s for s in self.top_level_skills.values() if not s.always_load]
         if optional:
             lines.append("## Specialized Skills (Activated On-Demand)")
             for skill in optional:
                 lines.append(skill.get_metadata_summary())
-        
+
         return "\n".join(lines)
     
     def determine_needed_skills(self, question: str, loaded_skills: Set[str]) -> List[str]:
-        """AI 判断需要哪些 Skills"""
+        """
+        AI 判断需要哪些一级技能
+        注意：只判断一级技能，二级技能通过嵌套引用加载
+        """
         needed = []
-        
-        # 始终加载的 skills
-        for skill_name, skill in self.skills.items():
+
+        # 始终加载的一级 skills
+        for skill_name, skill in self.top_level_skills.items():
             if skill.always_load:
                 needed.append(skill_name)
-        
-        # 检查未加载的 optional skills
+
+        # 检查未加载的 optional 一级 skills
         optional_skills = {
-            name: skill for name, skill in self.skills.items()
+            name: skill for name, skill in self.top_level_skills.items()
             if not skill.always_load and name not in loaded_skills
         }
-        
+
         if not optional_skills:
-            logger.info("[AI判断] 所有 optional skills 已加载，跳过判断")
+            logger.info("[AI判断] 所有 optional 一级 skills 已加载，跳过判断")
             return needed
-        
+
         # 使用 AI 判断
-        logger.info("[AI判断] 正在分析问题，判断需要哪些 skills...")
+        logger.info("[AI判断] 正在分析问题，判断需要哪些一级 skills...")
         ai_selected = self._ai_judge_skills(question, optional_skills)
-        
+
         if ai_selected:
             needed.extend(ai_selected)
             logger.info(f"[AI判断] AI 决定加载: {', '.join(ai_selected)}")
         else:
             logger.info("[AI判断] AI 认为不需要额外的 optional skills")
-        
+
         return needed
+
+    def get_child_skills_for_parent(self, parent_skill: DBSkill) -> List[DBSkill]:
+        """
+        获取父技能引用的所有子技能
+        解析 instructions 中的 @use:skill_name 或 [[skill:skill_name]] 标记
+        """
+        referenced_names = parent_skill.get_referenced_child_skills()
+        child_skills = []
+
+        for name in referenced_names:
+            if name in self.skills:
+                child = self.skills[name]
+                # 确认这个技能确实是子技能（level > 1）
+                if child.level > 1:
+                    child_skills.append(child)
+                    logger.info(f"[嵌套加载] 发现子技能引用: {parent_skill.name} -> {name}")
+
+        return child_skills
     
     def _ai_judge_skills(self, question: str, optional_skills: Dict[str, DBSkill]) -> List[str]:
         """使用 AI 判断需要哪些 skills"""
@@ -241,65 +319,107 @@ Your answer:"""
             return []
     
     def build_prompt_progressive(
-        self, 
-        question: str, 
+        self,
+        question: str,
         session_id: str
     ) -> Tuple[str, List[str], Set[str]]:
-        """渐进披露：构建 prompt"""
-        
+        """
+        渐进披露：构建 prompt
+        支持层级化技能：
+        1. 只在元数据摘要中展示一级技能
+        2. 当一级技能被加载时，解析其 instructions 中的子技能引用并加载
+        """
+
         if session_id not in self.sessions:
             self.sessions[session_id] = {
                 "loaded_skills": set(),
+                "loaded_child_skills": set(),  # 追踪已加载的子技能
                 "history": []
             }
-        
+
         session = self.sessions[session_id]
         loaded_skills = session["loaded_skills"]
-        
+        loaded_child_skills = session.get("loaded_child_skills", set())
+
+        # 判断需要的一级技能
         needed_skills = self.determine_needed_skills(question, loaded_skills)
-        
+
         needed_set = set(needed_skills)
         newly_loaded = needed_set - loaded_skills
-        
+
+        # 收集需要加载的子技能
+        child_skills_to_load = []
+        for skill_name in needed_set:
+            if skill_name in self.skills:
+                skill = self.skills[skill_name]
+                children = self.get_child_skills_for_parent(skill)
+                for child in children:
+                    if child.name not in loaded_child_skills:
+                        child_skills_to_load.append(child)
+
         logger.info(f"\n{'='*60}")
         logger.info(f"Session: {session_id}")
         logger.info(f"Question: {question[:100]}...")
         logger.info(f"{'='*60}")
-        logger.info(f"已加载 Skills: {', '.join(sorted(loaded_skills)) if loaded_skills else 'None'}")
-        logger.info(f"需要的 Skills: {', '.join(needed_skills)}")
-        logger.info(f"新加载 Skills: {', '.join(sorted(newly_loaded)) if newly_loaded else 'None'}")
-        
+        logger.info(f"已加载一级 Skills: {', '.join(sorted(loaded_skills)) if loaded_skills else 'None'}")
+        logger.info(f"需要的一级 Skills: {', '.join(needed_skills)}")
+        logger.info(f"新加载一级 Skills: {', '.join(sorted(newly_loaded)) if newly_loaded else 'None'}")
+        if child_skills_to_load:
+            logger.info(f"嵌套加载子 Skills: {', '.join(s.name for s in child_skills_to_load)}")
+
         prompt_parts = []
-        
-        # Level 1: 元数据摘要
+
+        # Level 1: 元数据摘要（只包含一级技能）
         metadata_summary = self.get_all_metadata_summary()
         prompt_parts.append(metadata_summary)
         prompt_parts.append("\n" + "=" * 60 + "\n")
-        
-        # Level 2: 完整内容 - 必须包含所有需要的 skills（LLM 是无状态的）
+
+        # Level 2: 完整内容 - 包含所有需要的一级技能
+        all_skills_for_prompt = []
+
         if needed_skills:
-            logger.info(f"\n[Level 2] 注入完整内容（所有需要的 skills）")
+            logger.info(f"\n[Level 2] 注入一级技能完整内容")
             prompt_parts.append("# Activated Skills\n")
             prompt_parts.append("The following skills have been activated for this session:\n")
-            
-            for skill_name in sorted(needed_set):  # 使用 needed_set 而不是 newly_loaded
+
+            for skill_name in sorted(needed_set):
                 skill = self.skills[skill_name]
                 content = skill.get_full_content()
                 prompt_parts.append(content)
                 prompt_parts.append("\n" + "-" * 60 + "\n")
-                
-                logger.info(f"  - {skill_name}: {len(content)} chars")
-            
+                all_skills_for_prompt.append(skill_name)
+                logger.info(f"  - {skill_name}: {len(content)} chars (Level 1)")
+
             session["loaded_skills"].update(newly_loaded)
-            
-            if newly_loaded:
-                print(f"[Progressive] NEW: Loaded {len(newly_loaded)} skills: {', '.join(sorted(newly_loaded))}")
-            else:
-                print(f"[Progressive] REUSE: Using loaded skills: {', '.join(sorted(needed_set))}")
-        
+
+        # Level 2.5: 嵌套加载的子技能
+        if child_skills_to_load:
+            logger.info(f"\n[Level 2.5] 注入嵌套子技能完整内容")
+            prompt_parts.append("\n# Child Skills (Nested Loading)\n")
+            prompt_parts.append("The following child skills are loaded based on parent skill references:\n")
+
+            newly_loaded_children = set()
+            for child in child_skills_to_load:
+                content = child.get_full_content()
+                prompt_parts.append(content)
+                prompt_parts.append("\n" + "-" * 60 + "\n")
+                all_skills_for_prompt.append(child.name)
+                newly_loaded_children.add(child.name)
+                logger.info(f"  - {child.name}: {len(content)} chars (Level {child.level}, Child of ID:{child.parent_skill_id})")
+
+            session["loaded_child_skills"] = loaded_child_skills.union(newly_loaded_children)
+
+            if newly_loaded_children:
+                print(f"[Progressive] NESTED: Loaded {len(newly_loaded_children)} child skills: {', '.join(sorted(newly_loaded_children))}")
+
+        if newly_loaded:
+            print(f"[Progressive] NEW: Loaded {len(newly_loaded)} skills: {', '.join(sorted(newly_loaded))}")
+        elif needed_skills:
+            print(f"[Progressive] REUSE: Using loaded skills: {', '.join(sorted(needed_set))}")
+
         full_prompt = "".join(prompt_parts)
-        
-        return full_prompt, list(needed_set), newly_loaded
+
+        return full_prompt, all_skills_for_prompt, newly_loaded
     
     def add_to_history(self, session_id: str, question: str, answer: str):
         """保存对话到历史"""
@@ -328,7 +448,7 @@ Your answer:"""
             print(f"[DBSkillManager] Session {session_id} cleared")
     
     def get_skill_metadata_list(self) -> List[dict]:
-        """获取所有 skills 的元数据列表"""
+        """获取所有 skills 的元数据列表（包含层级信息）"""
         return [
             {
                 "id": skill.id,
@@ -337,9 +457,28 @@ Your answer:"""
                 "always_load": skill.always_load,
                 "enabled": skill.enabled,
                 "version": skill.version,
+                "level": skill.level,
+                "parent_skill_id": skill.parent_skill_id,
                 "resources_count": len(skill.resources)
             }
             for skill in self.skills.values()
+        ]
+
+    def get_top_level_skill_list(self) -> List[dict]:
+        """获取所有一级 skills 的元数据列表"""
+        return [
+            {
+                "id": skill.id,
+                "name": skill.name,
+                "description": skill.description,
+                "always_load": skill.always_load,
+                "enabled": skill.enabled,
+                "version": skill.version,
+                "level": skill.level,
+                "resources_count": len(skill.resources),
+                "child_count": len(skill.child_skills)
+            }
+            for skill in self.top_level_skills.values()
         ]
 
 

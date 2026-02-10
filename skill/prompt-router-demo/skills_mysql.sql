@@ -24,12 +24,17 @@ CREATE TABLE `skills` (
     `always_load` TINYINT(1) DEFAULT 0,
     `enabled` TINYINT(1) DEFAULT 1,
     `version` VARCHAR(20) DEFAULT '1.0.0',
+    `level` INT DEFAULT 1 COMMENT '技能级别: 1=一级技能(直接可见), 2=二级技能(子技能)',
+    `parent_skill_id` INT DEFAULT NULL COMMENT '父技能ID，NULL表示是一级技能',
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_skills_name` (`name`),
     INDEX `idx_skills_name` (`name`),
-    INDEX `idx_skills_enabled` (`enabled`)
+    INDEX `idx_skills_enabled` (`enabled`),
+    INDEX `idx_skills_level` (`level`),
+    INDEX `idx_skills_parent` (`parent_skill_id`),
+    CONSTRAINT `fk_skills_parent` FOREIGN KEY (`parent_skill_id`) REFERENCES `skills`(`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 技能资源表

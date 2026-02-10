@@ -65,6 +65,16 @@ class DBApiHandler(BaseHTTPRequestHandler):
         
         elif parsed.path == "/api/skills":
             self._handle_get_skills()
+
+        elif parsed.path == "/api/skills/top-level":
+            self._handle_get_top_level_skills()
+
+        elif parsed.path.startswith("/api/skills/") and parsed.path.endswith("/children"):
+            skill_id = self._parse_int(parsed.path.split("/")[3])
+            if skill_id:
+                self._handle_get_child_skills(skill_id)
+            else:
+                self._send_json(400, {"error": "Invalid skill ID"})
         
         elif parsed.path.startswith("/api/skills/") and parsed.path.endswith("/resources"):
             skill_id = self._extract_skill_id(parsed.path)
@@ -241,16 +251,46 @@ class DBApiHandler(BaseHTTPRequestHandler):
     # ==================== Skills CRUD Handlers ====================
     
     def _handle_get_skills(self) -> None:
-        """获取所有 Skills"""
+        """获取所有 Skills（包含层级信息）"""
         try:
             manager = get_skill_manager()
             skills_info = manager.get_skill_metadata_list()
-            skills_info.sort(key=lambda s: (not s["always_load"], s["name"]))
-            
+            # 排序：先按 level，再按 always_load，最后按 name
+            skills_info.sort(key=lambda s: (s.get("level", 1), not s["always_load"], s["name"]))
+
             self._send_json(200, {
                 "total": len(skills_info),
                 "storage": "database",
                 "skills": skills_info
+            })
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _handle_get_top_level_skills(self) -> None:
+        """获取所有一级 Skills"""
+        try:
+            manager = get_skill_manager()
+            skills_info = manager.get_top_level_skill_list()
+            skills_info.sort(key=lambda s: (not s["always_load"], s["name"]))
+
+            self._send_json(200, {
+                "total": len(skills_info),
+                "level": 1,
+                "skills": skills_info
+            })
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _handle_get_child_skills(self, parent_skill_id: int) -> None:
+        """获取指定技能的子技能"""
+        try:
+            db = get_database()
+            children = db.get_child_skills(parent_skill_id)
+
+            self._send_json(200, {
+                "parent_skill_id": parent_skill_id,
+                "children": children,
+                "count": len(children)
             })
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
@@ -281,23 +321,44 @@ class DBApiHandler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             self._send_json(400, {"error": "Invalid JSON"})
             return
-        
+
         # 验证必需字段
         required = ['name', 'description', 'instructions']
         for field in required:
             if not payload.get(field):
                 self._send_json(400, {"error": f"Field '{field}' is required"})
                 return
-        
+
+        # 验证 level 和 parent_skill_id 的逻辑一致性
+        level = payload.get('level', 1)
+        parent_skill_id = payload.get('parent_skill_id')
+
+        if level == 1 and parent_skill_id:
+            self._send_json(400, {"error": "一级技能不能有父技能"})
+            return
+
+        if level > 1 and not parent_skill_id:
+            self._send_json(400, {"error": "二级及以上技能必须指定父技能"})
+            return
+
         try:
             db = get_database()
-            
+
             # 检查名称是否已存在
             existing = db.get_skill_by_name(payload['name'])
             if existing:
                 self._send_json(409, {"error": f"Skill '{payload['name']}' already exists"})
                 return
-            
+
+            # 如果指定了父技能，验证父技能存在
+            if parent_skill_id:
+                parent = db.get_skill_by_id(parent_skill_id)
+                if not parent:
+                    self._send_json(400, {"error": f"父技能 ID {parent_skill_id} 不存在"})
+                    return
+                # 检查循环依赖（简单检查：父技能的 parent 不能是当前技能）
+                # 更复杂的循环检测在实际场景中需要递归检查
+
             # 创建 Skill
             skill_id = db.create_skill(
                 name=payload['name'],
@@ -305,16 +366,20 @@ class DBApiHandler(BaseHTTPRequestHandler):
                 instructions=payload['instructions'],
                 always_load=payload.get('always_load', False),
                 enabled=payload.get('enabled', True),
-                version=payload.get('version', '1.0.0')
+                version=payload.get('version', '1.0.0'),
+                level=level,
+                parent_skill_id=parent_skill_id
             )
-            
+
             # 重新加载 SkillManager
             get_skill_manager().reload_skills()
-            
+
             self._send_json(201, {
                 "message": "Skill created successfully",
                 "id": skill_id,
-                "name": payload['name']
+                "name": payload['name'],
+                "level": level,
+                "parent_skill_id": parent_skill_id
             })
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
@@ -326,16 +391,34 @@ class DBApiHandler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             self._send_json(400, {"error": "Invalid JSON"})
             return
-        
+
         try:
             db = get_database()
-            
+
             # 检查是否存在
             existing = db.get_skill_by_id(skill_id)
             if not existing:
                 self._send_json(404, {"error": "Skill not found"})
                 return
-            
+
+            # 验证 level 和 parent_skill_id 的逻辑一致性
+            level = payload.get('level')
+            parent_skill_id = payload.get('parent_skill_id')
+
+            # 如果同时更新 level 和 parent_skill_id，需要校验
+            if level is not None:
+                if level == 1 and parent_skill_id:
+                    self._send_json(400, {"error": "一级技能不能有父技能"})
+                    return
+                if level > 1 and parent_skill_id == 0:
+                    self._send_json(400, {"error": "二级及以上技能必须指定父技能"})
+                    return
+
+            # 防止自己成为自己的父技能
+            if parent_skill_id and parent_skill_id == skill_id:
+                self._send_json(400, {"error": "技能不能将自己设为父技能"})
+                return
+
             # 更新
             success = db.update_skill(
                 skill_id,
@@ -344,15 +427,17 @@ class DBApiHandler(BaseHTTPRequestHandler):
                 instructions=payload.get('instructions'),
                 always_load=payload.get('always_load'),
                 enabled=payload.get('enabled'),
-                version=payload.get('version')
+                version=payload.get('version'),
+                level=level,
+                parent_skill_id=parent_skill_id
             )
-            
+
             if success:
                 get_skill_manager().reload_skills()
                 self._send_json(200, {"message": "Skill updated successfully", "id": skill_id})
             else:
                 self._send_json(400, {"error": "No fields to update"})
-                
+
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
     

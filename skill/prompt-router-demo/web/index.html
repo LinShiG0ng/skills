@@ -52,14 +52,36 @@
       <!-- 右侧：Skills 和历史 -->
       <aside class="sidebar">
         <section class="panel skills-panel">
-          <div class="panel-header">
-            <h2>📦 可用技能</h2>
-            <button id="add-skill-btn" class="btn-add" title="新建技能">+ 新建</button>
+          <!-- 标签页切换 -->
+          <div class="tabs">
+            <button class="tab-btn active" data-tab="available">📦 可用技能</button>
+            <button class="tab-btn" data-tab="custom">⚙️ 技能管理</button>
           </div>
-          <div id="skills-list" class="skills-list">
-            <p>加载中...</p>
-        </div>
-      </section>
+
+          <!-- 可用技能标签页 -->
+          <div id="tab-available" class="tab-content active">
+            <div id="skills-list" class="skills-list">
+              <p>加载中...</p>
+            </div>
+          </div>
+
+          <!-- 技能管理标签页 -->
+          <div id="tab-custom" class="tab-content">
+            <div class="custom-skills-header">
+              <button id="add-skill-btn" class="btn-add">+ 新建技能</button>
+              <div class="skill-filter">
+                <select id="level-filter">
+                  <option value="all">全部级别</option>
+                  <option value="1">一级技能</option>
+                  <option value="2">二级技能</option>
+                </select>
+              </div>
+            </div>
+            <div id="custom-skills-list" class="skills-list tree-view">
+              <p>加载中...</p>
+            </div>
+          </div>
+        </section>
 
         <section class="panel history-panel">
           <h2>📜 对话历史</h2>
@@ -109,18 +131,47 @@
             <small>Level 2 内容，当技能被激活时会加载到 AI 的上下文中</small>
           </div>
 
+          <!-- 层级配置 -->
+          <div class="form-row">
+            <div class="form-group">
+              <label for="skill-level">技能级别 <span class="required">*</span></label>
+              <select id="skill-level">
+                <option value="1">一级技能（可直接加载）</option>
+                <option value="2">二级技能（子技能）</option>
+              </select>
+              <small>一级技能可被AI直接加载；二级技能只能通过父技能引用加载</small>
+            </div>
+
+            <div class="form-group" id="parent-skill-group" style="display: none;">
+              <label for="skill-parent">父技能 <span class="required">*</span></label>
+              <select id="skill-parent">
+                <option value="">-- 选择父技能 --</option>
+              </select>
+              <small>二级技能必须指定一个一级技能作为父技能</small>
+            </div>
+          </div>
+
           <div class="form-row">
             <div class="form-group checkbox-group">
               <label>
                 <input type="checkbox" id="skill-always-load">
                 始终加载（核心技能）
               </label>
-              <small>勾选后此技能会始终包含在 AI 的上下文中</small>
+              <small>勾选后此技能会始终包含在 AI 的上下文中（仅限一级技能）</small>
             </div>
 
             <div class="form-group">
               <label for="skill-version">版本</label>
               <input type="text" id="skill-version" value="1.0.0" placeholder="1.0.0">
+            </div>
+          </div>
+
+          <!-- 子技能引用提示 -->
+          <div class="form-group" id="child-skill-hint">
+            <div class="hint-box">
+              <strong>💡 如何引用子技能？</strong>
+              <p>在详细指令中使用 <code>@use:子技能名称</code> 或 <code>[[skill:子技能名称]]</code> 来引用子技能。</p>
+              <p>示例：<code>@use:sql_payload_generator</code></p>
             </div>
           </div>
 

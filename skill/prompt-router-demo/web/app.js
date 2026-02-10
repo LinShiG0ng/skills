@@ -43,11 +43,22 @@
   const deleteSkillNameEl = document.getElementById("delete-skill-name");
   const confirmDeleteBtn = document.getElementById("confirm-delete-btn");
 
+  // DOM 元素 - 标签页和层级相关
+  const tabBtns = document.querySelectorAll(".tab-btn");
+  const tabContents = document.querySelectorAll(".tab-content");
+  const customSkillsListEl = document.getElementById("custom-skills-list");
+  const levelFilter = document.getElementById("level-filter");
+  const skillLevelSelect = document.getElementById("skill-level");
+  const skillParentSelect = document.getElementById("skill-parent");
+  const parentSkillGroup = document.getElementById("parent-skill-group");
+  const childSkillHint = document.getElementById("child-skill-hint");
+
   // 状态
   let currentSessionId = null;
   let conversationHistory = [];
   let availableSkills = [];
   let skillToDelete = null; // 待删除的技能信息
+  let currentTab = "available"; // 当前标签页
 
   // 初始化
   apiUrlEl.textContent = apiBase;
@@ -87,12 +98,14 @@
     }
   }
 
-  // 更新 skills 列表显示
+  // 更新可用技能列表显示（只显示一级技能）
   function updateSkillsDisplay() {
     if (!skillsListEl) return;
 
-    const baseSkills = availableSkills.filter(s => s.always_load);
-    const optionalSkills = availableSkills.filter(s => !s.always_load);
+    // 只显示一级技能
+    const topLevelSkills = availableSkills.filter(s => s.level === 1 || !s.level);
+    const baseSkills = topLevelSkills.filter(s => s.always_load);
+    const optionalSkills = topLevelSkills.filter(s => !s.always_load);
 
     let html = "";
 
@@ -100,13 +113,11 @@
       html += "<div class='skills-category'>";
       html += "<h4>🔵 核心技能（始终激活）</h4><ul>";
       baseSkills.forEach(skill => {
+        const childCount = getChildCount(skill.id);
+        const childBadge = childCount > 0 ? `<span class="child-badge" title="${childCount} 个子技能">+${childCount}</span>` : '';
         html += `<li data-skill="${skill.name}" data-skill-id="${skill.id}">
           <div class="skill-info">
-            <strong>${skill.name}</strong>: ${skill.description}
-          </div>
-          <div class="skill-actions">
-            <button class="btn-icon btn-edit" onclick="window.editSkill(${skill.id})" title="编辑">✏️</button>
-            <button class="btn-icon btn-delete" onclick="window.deleteSkill(${skill.id}, '${skill.name}')" title="删除">🗑️</button>
+            <strong>${skill.name}</strong>${childBadge}: ${skill.description}
           </div>
         </li>`;
       });
@@ -117,13 +128,11 @@
       html += "<div class='skills-category'>";
       html += "<h4>⚪ 专业技能（按需激活）</h4><ul>";
       optionalSkills.forEach(skill => {
+        const childCount = getChildCount(skill.id);
+        const childBadge = childCount > 0 ? `<span class="child-badge" title="${childCount} 个子技能">+${childCount}</span>` : '';
         html += `<li data-skill="${skill.name}" data-skill-id="${skill.id}" class="optional-skill">
           <div class="skill-info">
-            <strong>${skill.name}</strong>: ${skill.description}
-          </div>
-          <div class="skill-actions">
-            <button class="btn-icon btn-edit" onclick="window.editSkill(${skill.id})" title="编辑">✏️</button>
-            <button class="btn-icon btn-delete" onclick="window.deleteSkill(${skill.id}, '${skill.name}')" title="删除">🗑️</button>
+            <strong>${skill.name}</strong>${childBadge}: ${skill.description}
           </div>
         </li>`;
       });
@@ -131,6 +140,136 @@
     }
 
     skillsListEl.innerHTML = html || "<p>无可用技能</p>";
+  }
+
+  // 获取技能的子技能数量
+  function getChildCount(parentId) {
+    return availableSkills.filter(s => s.parent_skill_id === parentId).length;
+  }
+
+  // 更新技能管理页面（树形结构）
+  function updateCustomSkillsDisplay(filterLevel = "all") {
+    if (!customSkillsListEl) return;
+
+    let filteredSkills = availableSkills;
+    if (filterLevel !== "all") {
+      filteredSkills = availableSkills.filter(s => s.level === parseInt(filterLevel));
+    }
+
+    // 构建树形结构
+    const topLevel = filteredSkills.filter(s => s.level === 1 || !s.level);
+    const childSkills = filteredSkills.filter(s => s.level > 1);
+
+    let html = "";
+
+    if (topLevel.length === 0 && childSkills.length === 0) {
+      html = "<p>暂无技能，点击上方按钮创建</p>";
+    } else {
+      html = "<ul class='skill-tree'>";
+
+      // 显示一级技能及其子技能
+      topLevel.forEach(skill => {
+        const children = availableSkills.filter(s => s.parent_skill_id === skill.id);
+        const levelTag = `<span class="level-tag level-1">L1</span>`;
+        const alwaysLoadTag = skill.always_load ? '<span class="tag-always">核心</span>' : '';
+
+        html += `<li class="tree-item level-1-item" data-skill-id="${skill.id}">
+          <div class="tree-node">
+            <div class="skill-info">
+              ${levelTag}${alwaysLoadTag}
+              <strong>${skill.name}</strong>
+              <span class="skill-desc">: ${skill.description}</span>
+            </div>
+            <div class="skill-actions">
+              <button class="btn-icon btn-edit" onclick="window.editSkill(${skill.id})" title="编辑">✏️</button>
+              <button class="btn-icon btn-delete" onclick="window.deleteSkill(${skill.id}, '${skill.name}')" title="删除">🗑️</button>
+            </div>
+          </div>`;
+
+        // 显示子技能
+        if (children.length > 0) {
+          html += `<ul class="skill-children">`;
+          children.forEach(child => {
+            const childLevelTag = `<span class="level-tag level-2">L${child.level}</span>`;
+            html += `<li class="tree-item level-2-item" data-skill-id="${child.id}">
+              <div class="tree-node child-node">
+                <div class="skill-info">
+                  ${childLevelTag}
+                  <strong>${child.name}</strong>
+                  <span class="skill-desc">: ${child.description}</span>
+                </div>
+                <div class="skill-actions">
+                  <button class="btn-icon btn-edit" onclick="window.editSkill(${child.id})" title="编辑">✏️</button>
+                  <button class="btn-icon btn-delete" onclick="window.deleteSkill(${child.id}, '${child.name}')" title="删除">🗑️</button>
+                </div>
+              </div>
+            </li>`;
+          });
+          html += `</ul>`;
+        }
+
+        html += `</li>`;
+      });
+
+      // 显示孤立的子技能（筛选为子技能时）
+      if (filterLevel === "2") {
+        childSkills.forEach(skill => {
+          const parentSkill = availableSkills.find(s => s.id === skill.parent_skill_id);
+          const parentName = parentSkill ? parentSkill.name : '未知';
+          const levelTag = `<span class="level-tag level-2">L${skill.level}</span>`;
+
+          html += `<li class="tree-item level-2-item" data-skill-id="${skill.id}">
+            <div class="tree-node">
+              <div class="skill-info">
+                ${levelTag}
+                <strong>${skill.name}</strong>
+                <span class="skill-desc">: ${skill.description}</span>
+                <span class="parent-ref">← ${parentName}</span>
+              </div>
+              <div class="skill-actions">
+                <button class="btn-icon btn-edit" onclick="window.editSkill(${skill.id})" title="编辑">✏️</button>
+                <button class="btn-icon btn-delete" onclick="window.deleteSkill(${skill.id}, '${skill.name}')" title="删除">🗑️</button>
+              </div>
+            </div>
+          </li>`;
+        });
+      }
+
+      html += "</ul>";
+    }
+
+    customSkillsListEl.innerHTML = html;
+  }
+
+  // 更新父技能下拉框选项
+  function updateParentSkillOptions() {
+    if (!skillParentSelect) return;
+
+    const topLevelSkills = availableSkills.filter(s => s.level === 1 || !s.level);
+
+    let options = '<option value="">-- 选择父技能 --</option>';
+    topLevelSkills.forEach(skill => {
+      options += `<option value="${skill.id}">${skill.name}</option>`;
+    });
+
+    skillParentSelect.innerHTML = options;
+  }
+
+  // 切换标签页
+  function switchTab(tabName) {
+    currentTab = tabName;
+
+    tabBtns.forEach(btn => {
+      btn.classList.toggle("active", btn.dataset.tab === tabName);
+    });
+
+    tabContents.forEach(content => {
+      content.classList.toggle("active", content.id === `tab-${tabName}`);
+    });
+
+    if (tabName === "custom") {
+      updateCustomSkillsDisplay(levelFilter ? levelFilter.value : "all");
+    }
   }
 
   // 高亮新激活的 skills
@@ -298,12 +437,46 @@
 
   // ==================== 技能管理功能 ====================
 
+  // 处理级别切换
+  function handleLevelChange() {
+    const level = parseInt(skillLevelSelect.value);
+
+    if (parentSkillGroup) {
+      parentSkillGroup.style.display = level > 1 ? "block" : "none";
+    }
+
+    // 二级技能不能设为"始终加载"
+    if (skillAlwaysLoadInput) {
+      if (level > 1) {
+        skillAlwaysLoadInput.checked = false;
+        skillAlwaysLoadInput.disabled = true;
+      } else {
+        skillAlwaysLoadInput.disabled = false;
+      }
+    }
+
+    // 显示/隐藏子技能引用提示
+    if (childSkillHint) {
+      childSkillHint.style.display = level === 1 ? "block" : "none";
+    }
+  }
+
   // 打开新建技能模态框
   function openCreateModal() {
     modalTitle.textContent = "新建技能";
     skillForm.reset();
     skillIdInput.value = "";
     skillVersionInput.value = "1.0.0";
+
+    // 重置级别相关
+    if (skillLevelSelect) {
+      skillLevelSelect.value = "1";
+      handleLevelChange();
+    }
+
+    // 更新父技能选项
+    updateParentSkillOptions();
+
     skillModal.classList.add("active");
     skillNameInput.focus();
   }
@@ -325,6 +498,18 @@
       skillAlwaysLoadInput.checked = skill.always_load;
       skillVersionInput.value = skill.version || "1.0.0";
 
+      // 设置级别
+      if (skillLevelSelect) {
+        skillLevelSelect.value = skill.level || 1;
+        handleLevelChange();
+      }
+
+      // 更新并设置父技能
+      updateParentSkillOptions();
+      if (skillParentSelect && skill.parent_skill_id) {
+        skillParentSelect.value = skill.parent_skill_id;
+      }
+
       skillModal.classList.add("active");
       skillNameInput.focus();
     } catch (error) {
@@ -344,16 +529,27 @@
     const skillId = skillIdInput.value;
     const isEdit = !!skillId;
 
+    const level = skillLevelSelect ? parseInt(skillLevelSelect.value) : 1;
+    const parentSkillId = (level > 1 && skillParentSelect) ? parseInt(skillParentSelect.value) || null : null;
+
+    // 验证二级技能必须有父技能
+    if (level > 1 && !parentSkillId) {
+      alert("二级技能必须选择一个父技能");
+      return;
+    }
+
     const skillData = {
       name: skillNameInput.value.trim(),
       description: skillDescInput.value.trim(),
       instructions: skillInstructionsInput.value.trim(),
-      always_load: skillAlwaysLoadInput.checked,
+      always_load: level === 1 ? skillAlwaysLoadInput.checked : false,
       version: skillVersionInput.value.trim() || "1.0.0",
-      enabled: true
+      enabled: true,
+      level: level,
+      parent_skill_id: parentSkillId
     };
 
-    // 验证
+    // 验证必填字段
     if (!skillData.name || !skillData.description || !skillData.instructions) {
       alert("请填写所有必填字段");
       return;
@@ -437,6 +633,25 @@
       sendQuestion();
     }
   });
+
+  // 标签页切换
+  tabBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      switchTab(btn.dataset.tab);
+    });
+  });
+
+  // 级别筛选
+  if (levelFilter) {
+    levelFilter.addEventListener("change", () => {
+      updateCustomSkillsDisplay(levelFilter.value);
+    });
+  }
+
+  // 级别选择变化
+  if (skillLevelSelect) {
+    skillLevelSelect.addEventListener("change", handleLevelChange);
+  }
 
   // 技能管理相关
   if (addSkillBtn) {
