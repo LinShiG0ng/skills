@@ -346,13 +346,12 @@ class DBApiHandler(BaseHTTPRequestHandler):
         level = payload.get('level', 1)
         parent_skill_id = payload.get('parent_skill_id')
 
+        # 一级技能不应有父技能
         if level == 1 and parent_skill_id:
             self._send_json(400, {"error": "一级技能不能有父技能"})
             return
 
-        if level > 1 and not parent_skill_id:
-            self._send_json(400, {"error": "二级及以上技能必须指定父技能"})
-            return
+        # 二级技能的父技能是可选的（通过 @use:skill_name 引用建立关系）
 
         try:
             db = get_database()
@@ -418,14 +417,11 @@ class DBApiHandler(BaseHTTPRequestHandler):
             level = payload.get('level')
             parent_skill_id = payload.get('parent_skill_id')
 
-            # 如果同时更新 level 和 parent_skill_id，需要校验
-            if level is not None:
-                if level == 1 and parent_skill_id:
-                    self._send_json(400, {"error": "一级技能不能有父技能"})
-                    return
-                if level > 1 and parent_skill_id == 0:
-                    self._send_json(400, {"error": "二级及以上技能必须指定父技能"})
-                    return
+            # 一级技能不应有父技能
+            if level is not None and level == 1 and parent_skill_id:
+                self._send_json(400, {"error": "一级技能不能有父技能"})
+                return
+            # 二级技能的父技能是可选的
 
             # 防止自己成为自己的父技能
             if parent_skill_id and parent_skill_id == skill_id:
