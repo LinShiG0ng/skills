@@ -275,6 +275,47 @@ class DBSkillManager:
                     logger.info(f"[嵌套加载] 发现子技能引用: {parent_skill.name} -> {name}")
 
         return child_skills
+
+    def get_all_referenced_skills_recursive(
+        self,
+        skill: DBSkill,
+        already_collected: Set[str] = None
+    ) -> List[DBSkill]:
+        """
+        递归获取技能引用的所有技能（包括二级技能引用的其他二级技能）
+
+        Args:
+            skill: 要检查的技能
+            already_collected: 已收集的技能名称集合（避免循环引用）
+
+        Returns:
+            所有被引用的技能列表
+        """
+        if already_collected is None:
+            already_collected = set()
+
+        # 避免重复处理
+        if skill.name in already_collected:
+            return []
+
+        referenced_names = skill.get_referenced_child_skills()
+        result = []
+
+        for name in referenced_names:
+            if name in already_collected:
+                continue  # 避免循环引用
+
+            if name in self.skills:
+                referenced_skill = self.skills[name]
+                result.append(referenced_skill)
+                already_collected.add(name)
+                logger.info(f"[递归加载] 发现技能引用: {skill.name} -> {name} (Level {referenced_skill.level})")
+
+                # 递归检查这个技能是否也引用了其他技能
+                nested = self.get_all_referenced_skills_recursive(referenced_skill, already_collected)
+                result.extend(nested)
+
+        return result
     
     def _ai_judge_skills(self, question: str, optional_skills: Dict[str, DBSkill]) -> List[str]:
         """使用 AI 判断需要哪些 skills"""
@@ -347,15 +388,18 @@ Your answer:"""
         needed_set = set(needed_skills)
         newly_loaded = needed_set - loaded_skills
 
-        # 收集需要加载的子技能
+        # 收集需要加载的子技能（递归收集所有引用的技能）
         child_skills_to_load = []
+        already_collected = set(loaded_child_skills)  # 复制已加载的集合
         for skill_name in needed_set:
             if skill_name in self.skills:
                 skill = self.skills[skill_name]
-                children = self.get_child_skills_for_parent(skill)
-                for child in children:
-                    if child.name not in loaded_child_skills:
-                        child_skills_to_load.append(child)
+                # 使用递归方法获取所有引用的技能（包括二级引用二级）
+                all_referenced = self.get_all_referenced_skills_recursive(skill, already_collected.copy())
+                for ref_skill in all_referenced:
+                    if ref_skill.name not in loaded_child_skills and ref_skill.name not in [s.name for s in child_skills_to_load]:
+                        child_skills_to_load.append(ref_skill)
+                        already_collected.add(ref_skill.name)
 
         logger.info(f"\n{'='*60}")
         logger.info(f"Session: {session_id}")
@@ -365,7 +409,7 @@ Your answer:"""
         logger.info(f"需要的一级 Skills: {', '.join(needed_skills)}")
         logger.info(f"新加载一级 Skills: {', '.join(sorted(newly_loaded)) if newly_loaded else 'None'}")
         if child_skills_to_load:
-            logger.info(f"嵌套加载子 Skills: {', '.join(s.name for s in child_skills_to_load)}")
+            logger.info(f"递归加载引用 Skills: {', '.join(s.name for s in child_skills_to_load)}")
 
         prompt_parts = []
 
@@ -392,11 +436,11 @@ Your answer:"""
 
             session["loaded_skills"].update(newly_loaded)
 
-        # Level 2.5: 嵌套加载的子技能
+        # Level 2.5: 递归加载的引用技能（支持二级技能引用其他二级技能）
         if child_skills_to_load:
-            logger.info(f"\n[Level 2.5] 注入嵌套子技能完整内容")
-            prompt_parts.append("\n# Child Skills (Nested Loading)\n")
-            prompt_parts.append("The following child skills are loaded based on parent skill references:\n")
+            logger.info(f"\n[Level 2.5] 注入递归引用技能完整内容")
+            prompt_parts.append("\n# Referenced Skills (Recursive Loading)\n")
+            prompt_parts.append("The following skills are loaded based on @use:skill_name references:\n")
 
             newly_loaded_children = set()
             for child in child_skills_to_load:
@@ -410,7 +454,7 @@ Your answer:"""
             session["loaded_child_skills"] = loaded_child_skills.union(newly_loaded_children)
 
             if newly_loaded_children:
-                print(f"[Progressive] NESTED: Loaded {len(newly_loaded_children)} child skills: {', '.join(sorted(newly_loaded_children))}")
+                print(f"[Progressive] RECURSIVE: Loaded {len(newly_loaded_children)} referenced skills: {', '.join(sorted(newly_loaded_children))}")
 
         if newly_loaded:
             print(f"[Progressive] NEW: Loaded {len(newly_loaded)} skills: {', '.join(sorted(newly_loaded))}")
