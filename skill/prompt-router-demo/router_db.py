@@ -294,21 +294,19 @@ class DBSkillManager:
         if already_collected is None:
             already_collected = set()
 
-        # 避免重复处理
-        if skill.name in already_collected:
-            return []
-
         referenced_names = skill.get_referenced_child_skills()
         result = []
 
         for name in referenced_names:
+            # 检查是否已收集（避免循环引用和重复处理）
             if name in already_collected:
-                continue  # 避免循环引用
+                continue
 
             if name in self.skills:
                 referenced_skill = self.skills[name]
-                result.append(referenced_skill)
+                # 先标记为已收集，防止循环引用
                 already_collected.add(name)
+                result.append(referenced_skill)
                 logger.info(f"[递归加载] 发现技能引用: {skill.name} -> {name} (Level {referenced_skill.level})")
 
                 # 递归检查这个技能是否也引用了其他技能
