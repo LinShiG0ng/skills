@@ -310,6 +310,12 @@ class DBApiHandler(BaseHTTPRequestHandler):
             skill_data.setdefault('level', 1)
             skill_data.setdefault('parent_skill_id', None)
 
+            # 转换 datetime 对象为字符串
+            from datetime import datetime
+            for key, value in skill_data.items():
+                if isinstance(value, datetime):
+                    skill_data[key] = value.isoformat()
+
             # 获取资源列表
             resources = db.get_skill_resources(skill_id)
             skill_data['resources'] = resources
