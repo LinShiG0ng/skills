@@ -43,10 +43,11 @@
   const deleteSkillNameEl = document.getElementById("delete-skill-name");
   const confirmDeleteBtn = document.getElementById("confirm-delete-btn");
 
-  // DOM 元素 - 标签页和层级相关
-  const tabBtns = document.querySelectorAll(".tab-btn");
-  const tabContents = document.querySelectorAll(".tab-content");
-  const customSkillsListEl = document.getElementById("custom-skills-list");
+  // DOM 元素 - 主视图切换相关
+  const mainTabBtns = document.querySelectorAll(".main-tab-btn");
+  const viewContents = document.querySelectorAll(".view-content");
+  const level1SkillsEl = document.getElementById("level1-skills");
+  const level2SkillsEl = document.getElementById("level2-skills");
   const levelFilter = document.getElementById("level-filter");
   const skillLevelSelect = document.getElementById("skill-level");
   const skillParentSelect = document.getElementById("skill-parent");
@@ -58,7 +59,7 @@
   let conversationHistory = [];
   let availableSkills = [];
   let skillToDelete = null; // 待删除的技能信息
-  let currentTab = "available"; // 当前标签页
+  let currentView = "chat"; // 当前视图: chat | skills
 
   // 初始化
   apiUrlEl.textContent = apiBase;
@@ -147,98 +148,80 @@
     return availableSkills.filter(s => s.parent_skill_id === parentId).length;
   }
 
-  // 更新技能管理页面（树形结构）
-  function updateCustomSkillsDisplay(filterLevel = "all") {
-    if (!customSkillsListEl) return;
+  // 更新技能管理页面（两列布局）
+  function updateSkillsManager(filterLevel = "all") {
+    // 获取所有技能
+    const topLevelSkills = availableSkills.filter(s => s.level === 1 || !s.level);
+    const childSkills = availableSkills.filter(s => s.level === 2);
 
-    let filteredSkills = availableSkills;
-    if (filterLevel !== "all") {
-      filteredSkills = availableSkills.filter(s => s.level === parseInt(filterLevel));
-    }
+    // 根据筛选条件决定显示
+    const showLevel1 = filterLevel === "all" || filterLevel === "1";
+    const showLevel2 = filterLevel === "all" || filterLevel === "2";
 
-    // 构建树形结构
-    const topLevel = filteredSkills.filter(s => s.level === 1 || !s.level);
-    const childSkills = filteredSkills.filter(s => s.level > 1);
+    // 更新一级技能列表
+    if (level1SkillsEl) {
+      if (!showLevel1) {
+        level1SkillsEl.innerHTML = "<p class='filter-hidden'>已筛选隐藏</p>";
+      } else if (topLevelSkills.length === 0) {
+        level1SkillsEl.innerHTML = "<p>暂无一级技能</p>";
+      } else {
+        let html = "<ul class='skill-list'>";
+        topLevelSkills.forEach(skill => {
+          const children = availableSkills.filter(s => s.parent_skill_id === skill.id);
+          const childBadge = children.length > 0
+            ? `<span class="child-badge" title="${children.length} 个子技能">+${children.length}</span>`
+            : '';
+          const alwaysLoadTag = skill.always_load ? '<span class="tag-always">核心</span>' : '';
 
-    let html = "";
-
-    if (topLevel.length === 0 && childSkills.length === 0) {
-      html = "<p>暂无技能，点击上方按钮创建</p>";
-    } else {
-      html = "<ul class='skill-tree'>";
-
-      // 显示一级技能及其子技能
-      topLevel.forEach(skill => {
-        const children = availableSkills.filter(s => s.parent_skill_id === skill.id);
-        const levelTag = `<span class="level-tag level-1">L1</span>`;
-        const alwaysLoadTag = skill.always_load ? '<span class="tag-always">核心</span>' : '';
-
-        html += `<li class="tree-item level-1-item" data-skill-id="${skill.id}">
-          <div class="tree-node">
-            <div class="skill-info">
-              ${levelTag}${alwaysLoadTag}
-              <strong>${skill.name}</strong>
-              <span class="skill-desc">: ${skill.description}</span>
-            </div>
-            <div class="skill-actions">
-              <button class="btn-icon btn-edit" onclick="window.editSkill(${skill.id})" title="编辑">✏️</button>
-              <button class="btn-icon btn-delete" onclick="window.deleteSkill(${skill.id}, '${skill.name}')" title="删除">🗑️</button>
-            </div>
-          </div>`;
-
-        // 显示子技能
-        if (children.length > 0) {
-          html += `<ul class="skill-children">`;
-          children.forEach(child => {
-            const childLevelTag = `<span class="level-tag level-2">L${child.level}</span>`;
-            html += `<li class="tree-item level-2-item" data-skill-id="${child.id}">
-              <div class="tree-node child-node">
-                <div class="skill-info">
-                  ${childLevelTag}
-                  <strong>${child.name}</strong>
-                  <span class="skill-desc">: ${child.description}</span>
-                </div>
-                <div class="skill-actions">
-                  <button class="btn-icon btn-edit" onclick="window.editSkill(${child.id})" title="编辑">✏️</button>
-                  <button class="btn-icon btn-delete" onclick="window.deleteSkill(${child.id}, '${child.name}')" title="删除">🗑️</button>
-                </div>
+          html += `<li class="skill-item" data-skill-id="${skill.id}">
+            <div class="skill-card">
+              <div class="skill-header">
+                <strong class="skill-name">${skill.name}</strong>
+                ${childBadge}${alwaysLoadTag}
               </div>
-            </li>`;
-          });
-          html += `</ul>`;
-        }
-
-        html += `</li>`;
-      });
-
-      // 显示孤立的子技能（筛选为子技能时）
-      if (filterLevel === "2") {
-        childSkills.forEach(skill => {
-          const parentSkill = availableSkills.find(s => s.id === skill.parent_skill_id);
-          const parentName = parentSkill ? parentSkill.name : '未知';
-          const levelTag = `<span class="level-tag level-2">L${skill.level}</span>`;
-
-          html += `<li class="tree-item level-2-item" data-skill-id="${skill.id}">
-            <div class="tree-node">
-              <div class="skill-info">
-                ${levelTag}
-                <strong>${skill.name}</strong>
-                <span class="skill-desc">: ${skill.description}</span>
-                <span class="parent-ref">← ${parentName}</span>
-              </div>
+              <p class="skill-desc">${skill.description}</p>
               <div class="skill-actions">
-                <button class="btn-icon btn-edit" onclick="window.editSkill(${skill.id})" title="编辑">✏️</button>
-                <button class="btn-icon btn-delete" onclick="window.deleteSkill(${skill.id}, '${skill.name}')" title="删除">🗑️</button>
+                <button class="btn-sm btn-edit" onclick="window.editSkill(${skill.id})">编辑</button>
+                <button class="btn-sm btn-delete" onclick="window.deleteSkill(${skill.id}, '${skill.name}')">删除</button>
               </div>
             </div>
           </li>`;
         });
+        html += "</ul>";
+        level1SkillsEl.innerHTML = html;
       }
-
-      html += "</ul>";
     }
 
-    customSkillsListEl.innerHTML = html;
+    // 更新二级技能列表
+    if (level2SkillsEl) {
+      if (!showLevel2) {
+        level2SkillsEl.innerHTML = "<p class='filter-hidden'>已筛选隐藏</p>";
+      } else if (childSkills.length === 0) {
+        level2SkillsEl.innerHTML = "<p>暂无二级技能</p>";
+      } else {
+        let html = "<ul class='skill-list'>";
+        childSkills.forEach(skill => {
+          const parentSkill = availableSkills.find(s => s.id === skill.parent_skill_id);
+          const parentName = parentSkill ? parentSkill.name : '未知';
+
+          html += `<li class="skill-item" data-skill-id="${skill.id}">
+            <div class="skill-card child-card">
+              <div class="skill-header">
+                <strong class="skill-name">${skill.name}</strong>
+                <span class="parent-ref">← ${parentName}</span>
+              </div>
+              <p class="skill-desc">${skill.description}</p>
+              <div class="skill-actions">
+                <button class="btn-sm btn-edit" onclick="window.editSkill(${skill.id})">编辑</button>
+                <button class="btn-sm btn-delete" onclick="window.deleteSkill(${skill.id}, '${skill.name}')">删除</button>
+              </div>
+            </div>
+          </li>`;
+        });
+        html += "</ul>";
+        level2SkillsEl.innerHTML = html;
+      }
+    }
   }
 
   // 更新父技能下拉框选项
@@ -255,20 +238,21 @@
     skillParentSelect.innerHTML = options;
   }
 
-  // 切换标签页
-  function switchTab(tabName) {
-    currentTab = tabName;
+  // 切换主视图
+  function switchView(viewName) {
+    currentView = viewName;
 
-    tabBtns.forEach(btn => {
-      btn.classList.toggle("active", btn.dataset.tab === tabName);
+    mainTabBtns.forEach(btn => {
+      btn.classList.toggle("active", btn.dataset.view === viewName);
     });
 
-    tabContents.forEach(content => {
-      content.classList.toggle("active", content.id === `tab-${tabName}`);
+    viewContents.forEach(content => {
+      content.classList.toggle("active", content.id === `view-${viewName}`);
     });
 
-    if (tabName === "custom") {
-      updateCustomSkillsDisplay(levelFilter ? levelFilter.value : "all");
+    // 切换到技能管理视图时刷新列表
+    if (viewName === "skills") {
+      updateSkillsManager(levelFilter ? levelFilter.value : "all");
     }
   }
 
@@ -634,17 +618,17 @@
     }
   });
 
-  // 标签页切换
-  tabBtns.forEach(btn => {
+  // 主视图切换
+  mainTabBtns.forEach(btn => {
     btn.addEventListener("click", () => {
-      switchTab(btn.dataset.tab);
+      switchView(btn.dataset.view);
     });
   });
 
   // 级别筛选
   if (levelFilter) {
     levelFilter.addEventListener("change", () => {
-      updateCustomSkillsDisplay(levelFilter.value);
+      updateSkillsManager(levelFilter.value);
     });
   }
 

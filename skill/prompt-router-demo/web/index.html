@@ -17,79 +17,100 @@
     </header>
 
     <main class="container">
-      <!-- 左侧：输入和输出 -->
-      <div class="main-panel">
-        <section class="panel input-panel">
-          <h2>💬 对话</h2>
-        <label for="question">输入问题</label>
-          <textarea 
-            id="question" 
-            rows="4" 
-            placeholder="例如：如何测试SQL注入漏洞？"></textarea>
-        <div class="actions">
-            <button id="send-btn" class="btn-primary">📤 发送</button>
-            <button id="clear-btn" class="btn-secondary">🔄 清除会话</button>
-            <span id="status" class="status">✨ 就绪</span>
-        </div>
-      </section>
-
-        <section class="panel output-panel">
-          <h2>🤖 AI 回复</h2>
-          <div class="meta-info">
-            <div class="meta-row">
-              <span class="meta-label">涉及技能:</span>
-              <strong id="segments" class="meta-value">-</strong>
-            </div>
-            <div class="meta-row">
-              <span class="meta-label">加载状态:</span>
-              <strong id="newly-loaded" class="meta-value">-</strong>
-            </div>
-        </div>
-        <pre id="answer" class="answer">等待输入...</pre>
-      </section>
+      <!-- 主导航标签页 -->
+      <div class="main-tabs">
+        <button class="main-tab-btn active" data-view="chat">💬 对话</button>
+        <button class="main-tab-btn" data-view="skills">📦 技能管理</button>
       </div>
 
-      <!-- 右侧：Skills 和历史 -->
-      <aside class="sidebar">
-        <section class="panel skills-panel">
-          <!-- 标签页切换 -->
-          <div class="tabs">
-            <button class="tab-btn active" data-tab="available">📦 可用技能</button>
-            <button class="tab-btn" data-tab="custom">⚙️ 技能管理</button>
+      <!-- 对话视图 -->
+      <div id="view-chat" class="view-content active">
+        <div class="chat-layout">
+          <!-- 左侧：输入和输出 -->
+          <div class="chat-main">
+            <section class="panel input-panel">
+              <h2>💬 对话</h2>
+              <label for="question">输入问题</label>
+              <textarea
+                id="question"
+                rows="4"
+                placeholder="例如：如何测试SQL注入漏洞？"></textarea>
+              <div class="actions">
+                <button id="send-btn" class="btn-primary">📤 发送</button>
+                <button id="clear-btn" class="btn-secondary">🔄 清除会话</button>
+                <span id="status" class="status">✨ 就绪</span>
+              </div>
+            </section>
+
+            <section class="panel output-panel">
+              <h2>🤖 AI 回复</h2>
+              <div class="meta-info">
+                <div class="meta-row">
+                  <span class="meta-label">涉及技能:</span>
+                  <strong id="segments" class="meta-value">-</strong>
+                </div>
+                <div class="meta-row">
+                  <span class="meta-label">加载状态:</span>
+                  <strong id="newly-loaded" class="meta-value">-</strong>
+                </div>
+              </div>
+              <pre id="answer" class="answer">等待输入...</pre>
+            </section>
           </div>
 
-          <!-- 可用技能标签页 -->
-          <div id="tab-available" class="tab-content active">
-            <div id="skills-list" class="skills-list">
-              <p>加载中...</p>
+          <!-- 右侧：可用技能快览和历史 -->
+          <aside class="chat-sidebar">
+            <section class="panel skills-preview">
+              <h2>📦 可用技能</h2>
+              <div id="skills-list" class="skills-list compact">
+                <p>加载中...</p>
+              </div>
+            </section>
+
+            <section class="panel history-panel">
+              <h2>📜 对话历史</h2>
+              <div id="history" class="history-list">
+                <p>暂无历史记录</p>
+              </div>
+            </section>
+          </aside>
+        </div>
+      </div>
+
+      <!-- 技能管理视图 -->
+      <div id="view-skills" class="view-content">
+        <div class="skills-manager">
+          <div class="skills-manager-header">
+            <h2>⚙️ 技能管理</h2>
+            <div class="skills-manager-actions">
+              <button id="add-skill-btn" class="btn-add">+ 新建技能</button>
+              <select id="level-filter">
+                <option value="all">全部级别</option>
+                <option value="1">一级技能</option>
+                <option value="2">二级技能</option>
+              </select>
             </div>
           </div>
 
-          <!-- 技能管理标签页 -->
-          <div id="tab-custom" class="tab-content">
-            <div class="custom-skills-header">
-              <button id="add-skill-btn" class="btn-add">+ 新建技能</button>
-              <div class="skill-filter">
-                <select id="level-filter">
-                  <option value="all">全部级别</option>
-                  <option value="1">一级技能</option>
-                  <option value="2">二级技能</option>
-                </select>
+          <div class="skills-grid">
+            <!-- 一级技能列表 -->
+            <div class="skills-column">
+              <h3>🔵 一级技能（可直接加载）</h3>
+              <div id="level1-skills" class="skills-list-full">
+                <p>加载中...</p>
               </div>
             </div>
-            <div id="custom-skills-list" class="skills-list tree-view">
-              <p>加载中...</p>
+
+            <!-- 二级技能列表 -->
+            <div class="skills-column">
+              <h3>🔶 二级技能（子技能）</h3>
+              <div id="level2-skills" class="skills-list-full">
+                <p>加载中...</p>
+              </div>
             </div>
           </div>
-        </section>
-
-        <section class="panel history-panel">
-          <h2>📜 对话历史</h2>
-          <div id="history" class="history-list">
-            <p>暂无历史记录</p>
         </div>
-      </section>
-      </aside>
+      </div>
     </main>
 
     <footer class="footer">
@@ -98,14 +119,14 @@
         Level 1 (YAML frontmatter) 始终预加载 → Level 2 (Markdown instructions) 按需激活 → Level 3 (Resources) 实际使用时加载
       </p>
       <p>
-        💡 <em>无关键字匹配，由 AI 基于 description 自主判断相关性</em> | 
+        💡 <em>无关键字匹配，由 AI 基于 description 自主判断相关性</em> |
         ✅ <em>标准 SKILL.md 格式，完全符合 Anthropic 官方规范</em>
       </p>
     </footer>
 
     <!-- 技能管理模态框 -->
     <div id="skill-modal" class="modal">
-      <div class="modal-content">
+      <div class="modal-content modal-large">
         <div class="modal-header">
           <h3 id="modal-title">新建技能</h3>
           <button id="modal-close" class="modal-close">&times;</button>
@@ -113,10 +134,29 @@
         <form id="skill-form">
           <input type="hidden" id="skill-id" value="">
 
-          <div class="form-group">
-            <label for="skill-name">技能名称 <span class="required">*</span></label>
-            <input type="text" id="skill-name" placeholder="例如：sql_injection_scanner" required>
-            <small>唯一标识符，使用小写字母和下划线</small>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="skill-name">技能名称 <span class="required">*</span></label>
+              <input type="text" id="skill-name" placeholder="例如：sql_injection_scanner" required>
+              <small>唯一标识符，使用小写字母和下划线</small>
+            </div>
+
+            <div class="form-group">
+              <label for="skill-level">技能级别 <span class="required">*</span></label>
+              <select id="skill-level">
+                <option value="1">一级技能（可直接加载）</option>
+                <option value="2">二级技能（子技能）</option>
+              </select>
+              <small>一级技能可被AI直接加载；二级技能通过父技能引用加载</small>
+            </div>
+          </div>
+
+          <div class="form-group" id="parent-skill-group" style="display: none;">
+            <label for="skill-parent">父技能 <span class="required">*</span></label>
+            <select id="skill-parent">
+              <option value="">-- 选择父技能 --</option>
+            </select>
+            <small>二级技能必须指定一个父技能</small>
           </div>
 
           <div class="form-group">
@@ -127,27 +167,15 @@
 
           <div class="form-group">
             <label for="skill-instructions">详细指令 <span class="required">*</span></label>
-            <textarea id="skill-instructions" rows="10" placeholder="完整的技能指令，支持 Markdown 格式..." required></textarea>
+            <textarea id="skill-instructions" rows="12" placeholder="完整的技能指令，支持 Markdown 格式..." required></textarea>
             <small>Level 2 内容，当技能被激活时会加载到 AI 的上下文中</small>
           </div>
 
-          <!-- 层级配置 -->
-          <div class="form-row">
-            <div class="form-group">
-              <label for="skill-level">技能级别 <span class="required">*</span></label>
-              <select id="skill-level">
-                <option value="1">一级技能（可直接加载）</option>
-                <option value="2">二级技能（子技能）</option>
-              </select>
-              <small>一级技能可被AI直接加载；二级技能只能通过父技能引用加载</small>
-            </div>
-
-            <div class="form-group" id="parent-skill-group" style="display: none;">
-              <label for="skill-parent">父技能 <span class="required">*</span></label>
-              <select id="skill-parent">
-                <option value="">-- 选择父技能 --</option>
-              </select>
-              <small>二级技能必须指定一个一级技能作为父技能</small>
+          <!-- 子技能引用提示 -->
+          <div class="form-group" id="child-skill-hint">
+            <div class="hint-box">
+              <strong>💡 如何引用子技能？</strong>
+              <p>在详细指令中使用 <code>@use:子技能名称</code> 来引用子技能，例如：<code>@use:sql_payload_generator</code></p>
             </div>
           </div>
 
@@ -163,15 +191,6 @@
             <div class="form-group">
               <label for="skill-version">版本</label>
               <input type="text" id="skill-version" value="1.0.0" placeholder="1.0.0">
-            </div>
-          </div>
-
-          <!-- 子技能引用提示 -->
-          <div class="form-group" id="child-skill-hint">
-            <div class="hint-box">
-              <strong>💡 如何引用子技能？</strong>
-              <p>在详细指令中使用 <code>@use:子技能名称</code> 或 <code>[[skill:子技能名称]]</code> 来引用子技能。</p>
-              <p>示例：<code>@use:sql_payload_generator</code></p>
             </div>
           </div>
 

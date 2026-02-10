@@ -300,18 +300,25 @@ class DBApiHandler(BaseHTTPRequestHandler):
         try:
             db = get_database()
             skill = db.get_skill_by_id(skill_id)
-            
+
             if not skill:
                 self._send_json(404, {"error": "Skill not found"})
                 return
-            
+
+            # 确保返回的数据包含所有必要字段（兼容旧数据库）
+            skill_data = dict(skill)
+            skill_data.setdefault('level', 1)
+            skill_data.setdefault('parent_skill_id', None)
+
             # 获取资源列表
             resources = db.get_skill_resources(skill_id)
-            skill['resources'] = resources
-            skill['resources_count'] = len(resources)
-            
-            self._send_json(200, skill)
+            skill_data['resources'] = resources
+            skill_data['resources_count'] = len(resources)
+
+            self._send_json(200, skill_data)
         except Exception as exc:
+            import traceback
+            traceback.print_exc()
             self._send_json(500, {"error": str(exc)})
     
     def _handle_create_skill(self) -> None:
