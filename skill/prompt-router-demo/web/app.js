@@ -516,12 +516,7 @@
     const level = skillLevelSelect ? parseInt(skillLevelSelect.value) : 1;
     const parentSkillId = (level > 1 && skillParentSelect) ? parseInt(skillParentSelect.value) || null : null;
 
-    // 验证二级技能必须有父技能
-    if (level > 1 && !parentSkillId) {
-      alert("二级技能必须选择一个父技能");
-      return;
-    }
-
+    // 父技能是可选的，不再强制要求
     const skillData = {
       name: skillNameInput.value.trim(),
       description: skillDescInput.value.trim(),
