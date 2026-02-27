@@ -2,122 +2,200 @@
 
 ## 系统概述
 
-一个基于 Anthropic Agent Skills 的数据包分析系统：
-- 用户提供 HTTP 数据包
-- AI 分析并调用对应的 skill
-- 执行安全测试并返回结果
+基于文件读取 + 数据库镜像的智能技能管理系统：
+
+- **问答速度快** — 技能从本地文件读取，无数据库访问
+- **后台可管理** — 前端 CRUD 同步到数据库，便于后台查看
+- **层级化技能** — 一级/二级技能通过目录划分
 
 ---
 
-## 1. 启动服务器
+## 1. 环境准备
+
+### 安装依赖
+
+```bash
+pip install pymysql pyyaml
+```
+
+### 配置数据库（可选）
+
+默认配置已内置，如需修改：
+
+```bash
+export MYSQL_HOST=127.0.0.1
+export MYSQL_PORT=3306
+export MYSQL_USER=root
+export MYSQL_PASSWORD=123.com
+export MYSQL_DATABASE=skills
+```
+
+### 配置 AI API
+
+```bash
+export DASHSCOPE_API_KEY=your_api_key
+```
+
+---
+
+## 2. 初始化数据库
+
+```bash
+# 创建数据库
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS skills CHARACTER SET utf8mb4"
+
+# 导入表结构和初始数据
+mysql -u root -p skills < skills_mysql.sql
+```
+
+---
+
+## 3. 启动服务器
 
 ```bash
 cd prompt-router-demo
-python server.py
+python server_db.py
 ```
 
 输出：
 ```
 ======================================================================
-🚀 Anthropic Agent Skills - 数据包分析系统
+[*] Anthropic Agent Skills — File + DB Mirror
 ======================================================================
-Server: http://127.0.0.1:8010
 
-核心 Skills:
-  🔵 role_definition - 角色定义（always_load）
-  ⚪ sqlmap_scanner - SQLMap 扫描（AI 判断加载）
+[Storage] 技能从本地文件读取（skills/L1/ 和 skills/L2/）
+[Mirror]  前端 CRUD 同步写入 DB，供后台查看
 
-特性:
-  ✅ AI 判断加载策略（完全无关键字）
-  ✅ Level 3 Resources 支持（脚本、payload）
-  ✅ 数据包驱动的 skill 调用
-  ✅ 完整的日志记录（prompts.log）
+[Web] http://127.0.0.1:8010/
+
 ======================================================================
-[SkillManager] 已加载 2 个 skills 的元数据
+[Migration] DB→File: role_definition (Level 1)
+[Migration] DB→File: sqlmap_scanner (Level 1)
+[Migration] 已从 DB 导出 2 个技能到本地文件
+
+[FileSkillManager] 2 skills loaded from files
+
+[*] Server started, waiting for requests...
+[*] Open browser: http://127.0.0.1:8010/
+```
+
+**首次启动时**：系统自动将数据库中的技能导出到本地文件目录。
+
+---
+
+## 4. 打开 Web 界面
+
+浏览器访问：`http://127.0.0.1:8010/`
+
+### 对话视图
+
+1. 在输入框输入问题
+2. 点击「发送」或按 Enter
+3. 查看 AI 回复和涉及的技能
+
+### 技能管理视图
+
+1. 点击顶部「技能管理」标签
+2. 左侧显示一级技能，右侧显示二级技能
+3. 点击「新建技能」创建新技能
+4. 点击「编辑」或「删除」管理现有技能
+
+---
+
+## 5. 技能目录结构
+
+```
+skills/
+├── L1/                    # 一级技能（AI 可直接加载）
+│   ├── role_definition.md
+│   └── sqlmap_scanner.md
+└── L2/                    # 二级技能（通过 @use: 引用）
+    └── (二级技能文件)
+```
+
+### 技能文件格式
+
+```markdown
+---
+name: my_skill
+description: 技能描述，AI 用于判断是否加载
+always_load: false
+enabled: true
+version: 1.0.0
+---
+
+# Instructions
+
+这里是技能的详细指令...
+
+## 引用其他技能
+
+可以使用 @use:other_skill 来引用二级技能
 ```
 
 ---
 
-## 2. 使用方式
+## 6. 创建技能示例
 
-### Web 界面
+### 通过 Web 界面
 
-打开浏览器访问：`http://127.0.0.1:8010/web/index.html`
+1. 点击「技能管理」→「新建技能」
+2. 填写：
+   - 名称：`my_new_skill`
+   - 描述：`这是一个新技能`
+   - 级别：选择「一级技能」或「二级技能」
+   - 指令：填写详细内容
+3. 点击「保存」
 
-输入数据包：
-
-```
-请分析这个数据包是否存在SQL注入：
-
-POST /api/login HTTP/1.1
-Host: target.com
-Content-Type: application/x-www-form-urlencoded
-
-username=admin&password=test
-```
-
-### 命令行
+### 通过 API
 
 ```bash
-python router.py "数据包内容..." session1
+curl -X POST http://127.0.0.1:8010/api/skills \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my_new_skill",
+    "description": "这是一个新技能",
+    "instructions": "详细指令内容...",
+    "level": 1,
+    "always_load": false
+  }'
 ```
+
+### 直接创建文件
+
+在 `skills/L1/` 或 `skills/L2/` 目录下创建 `.md` 文件，重启服务器即可加载。
 
 ---
 
-## 3. 工作流程
+## 7. 引用子技能
 
+在一级技能的 instructions 中使用 `@use:skill_name` 引用二级技能：
+
+```markdown
+---
+name: parent_skill
+description: 父技能
+always_load: false
+version: 1.0.0
+---
+
+# Instructions
+
+当需要执行某操作时，使用以下子技能：
+
+@use:child_skill_a
+@use:child_skill_b
+
+根据情况选择合适的子技能...
 ```
-Step 1: 用户提供数据包
-    ↓
-Step 2: AI 分析数据包
-    - 识别接口类型（登录、查询、搜索等）
-    - 判断可能的漏洞类型
-    ↓
-Step 3: AI 判断需要的 skill
-    - 调用 AI 判断器（~150 tokens）
-    - AI 返回: "sqlmap_scanner"
-    ↓
-Step 4: 加载 sqlmap_scanner skill
-    - Level 2: 加载 SKILL.md（指导）
-    - Level 3: 检测 resources/（脚本、payload）
-    ↓
-Step 5: AI 调用 resources 中的工具
-    - 使用 sqlmap_wrapper.py
-    - 或直接调用 SQLMap
-    ↓
-Step 6: 返回分析结果
-    - 是否存在漏洞
-    - 漏洞详情
-    - 修复建议
-```
+
+系统会自动递归加载被引用的技能（支持二级技能引用其他二级技能）。
 
 ---
 
-## 4. 查看日志
+## 8. API 使用
 
-### 查看提示词注入
-
-```bash
-cat logs/prompts.log
-```
-
-你会看到：
-- 每次对话注入了哪些内容
-- 哪些 skills 被加载
-- 完整的 system prompt
-- 发送给 AI 的完整 messages
-
-### 查看结构化日志
-
-```bash
-cat logs/app.log | tail -1 | python -m json.tool
-```
-
----
-
-## 5. API 使用
-
-### 分析数据包
+### 发送问题
 
 ```bash
 curl -X POST http://127.0.0.1:8010/api/chat \
@@ -128,87 +206,83 @@ curl -X POST http://127.0.0.1:8010/api/chat \
   }'
 ```
 
-### 获取 skill 资源
+### 获取所有技能
 
 ```bash
-# 列出资源
-curl http://127.0.0.1:8010/api/skills/sqlmap_scanner/resources
+curl http://127.0.0.1:8010/api/skills
+```
 
-# 获取脚本内容
-curl http://127.0.0.1:8010/api/skills/sqlmap_scanner/resources/sqlmap_wrapper.py
+### 获取技能详情
+
+```bash
+curl http://127.0.0.1:8010/api/skills/1
+```
+
+### 清除会话
+
+```bash
+curl -X DELETE http://127.0.0.1:8010/api/session/user123
 ```
 
 ---
 
-## 6. Token 消耗
-
-### 第一次对话（加载 sqlmap_scanner）
+## 9. 数据流说明
 
 ```
-元数据: 200 tokens
-role_definition: 150 tokens
-sqlmap_scanner: 500 tokens
-AI 判断: 150 tokens
-────────────────────
-总计: ~1000 tokens
-```
-
-### 第二次对话（复用）
-
-```
-元数据: 200 tokens
-历史对话: 100 tokens
-────────────────────
-总计: ~300 tokens  ✅ 节省 70%
+┌─────────────────────────────────────────────────────────┐
+│                    用户操作                              │
+└─────────────────────┬───────────────────────────────────┘
+                      │
+        ┌─────────────┴─────────────┐
+        ▼                           ▼
+   问答/对话                    CRUD 操作
+        │                           │
+        ▼                           ▼
+ ┌──────────────┐           ┌──────────────┐
+ │ 读取本地文件  │           │ 写入本地文件  │
+ │ (速度快)     │           │      +       │
+ └──────────────┘           │ 同步到 DB    │
+                            └──────────────┘
 ```
 
 ---
 
-## 7. 常见场景
+## 10. 日志查看
 
-### 场景 A：SQL 注入检测
+### 提示词日志
 
-```
-用户: [提供登录接口数据包]
-AI: 判断需要 sqlmap_scanner → 加载 → 调用 sqlmap_wrapper.py → 返回结果
-```
-
-### 场景 B：多个接口测试
-
-```
-第1次: [登录接口] → 加载 sqlmap_scanner
-第2次: [查询接口] → 复用 sqlmap_scanner ✅
-第3次: [搜索接口] → 复用 sqlmap_scanner ✅
+```bash
+cat logs/prompts.log
 ```
 
-### 场景 C：简单咨询
+查看每次对话注入的完整内容。
 
-```
-用户: "什么是SQL注入？"
-AI: 判断不需要 sqlmap_scanner → 只用 role_definition → 直接回答
-Token: ~300
+### 结构化日志
+
+```bash
+cat logs/app.log | tail -1 | python -m json.tool
 ```
 
 ---
 
-## 8. 系统特点
+## 11. 常见问题
 
-✅ **数据包驱动** - 根据数据包特征调用 skill  
-✅ **AI 智能判断** - 零关键字，纯语义理解  
-✅ **渐进披露** - 首次加载，后续复用  
-✅ **Resources 支持** - 可执行脚本、payload、模板  
-✅ **完整日志** - 所有操作可追溯  
+### Q: 修改了技能文件，如何生效？
+
+重启服务器，或通过 Web 界面编辑后保存。
+
+### Q: 数据库中的技能没有同步到文件？
+
+首次启动时会自动迁移。如需手动迁移，删除 `skills/L1/` 和 `skills/L2/` 中的文件后重启。
+
+### Q: 二级技能没有被加载？
+
+检查一级技能的 instructions 中是否正确使用了 `@use:skill_name` 语法。
 
 ---
 
-## 9. 下一步
+## 12. 下一步
 
-- 查看 `ARCHITECTURE.md` 了解架构设计
-- 查看 `RESOURCES_GUIDE.md` 了解如何添加新资源
-- 查看 `LOG_GUIDE.md` 了解日志系统
+- 查看 `README.md` 了解完整架构
 - 查看 `logs/prompts.log` 查看实际注入的内容
-
-
-
-
-
+- 通过 Web 界面管理技能
