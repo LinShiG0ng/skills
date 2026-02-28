@@ -17,7 +17,7 @@ from datetime import datetime
 import uuid
 
 from logging_utils import log_event
-from router_file import answer, get_skill_manager, _write_skill_file, _delete_skill_file
+from router_file import answer, answer_stream, get_skill_manager, _write_skill_file, _delete_skill_file
 from db_models import get_database
 
 BASE_DIR = Path(__file__).parent
@@ -42,6 +42,8 @@ class DBApiHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/api/chat":
             self._handle_chat()
+        elif parsed.path == "/api/chat/stream":
+            self._handle_chat_stream()
         elif parsed.path == "/api/skills":
             self._handle_create_skill()
         elif parsed.path.startswith("/api/skills/") and parsed.path.endswith("/resources"):
@@ -215,6 +217,65 @@ class DBApiHandler(BaseHTTPRequestHandler):
             import traceback
             traceback.print_exc()
             self._send_json(500, {"error": str(exc)})
+
+    def _handle_chat_stream(self) -> None:
+        """流式聊天 - 使用 Server-Sent Events"""
+        try:
+            payload = self._read_json_body()
+        except json.JSONDecodeError:
+            self._send_json(400, {"error": "Invalid JSON"})
+            return
+
+        question = (payload.get("question") or "").strip()
+        if not question:
+            self._send_json(400, {"error": "Question is required"})
+            return
+
+        session_id = payload.get("session_id") or str(uuid.uuid4())
+
+        try:
+            # 发送 SSE 响应头
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            # 流式获取响应
+            full_answer = ""
+            for event_type, data in answer_stream(question, session_id):
+                if event_type == "meta":
+                    # 发送元数据（技能信息）
+                    event_data = json.dumps(data, ensure_ascii=False)
+                    self.wfile.write(f"event: meta\ndata: {event_data}\n\n".encode("utf-8"))
+                    self.wfile.flush()
+                elif event_type == "chunk":
+                    # 发送内容块
+                    full_answer += data
+                    chunk_data = json.dumps({"content": data}, ensure_ascii=False)
+                    self.wfile.write(f"event: chunk\ndata: {chunk_data}\n\n".encode("utf-8"))
+                    self.wfile.flush()
+                elif event_type == "done":
+                    # 发送完成信号
+                    done_data = json.dumps({"answer": full_answer}, ensure_ascii=False)
+                    self.wfile.write(f"event: done\ndata: {done_data}\n\n".encode("utf-8"))
+                    self.wfile.flush()
+                elif event_type == "error":
+                    # 发送错误信息
+                    error_data = json.dumps({"error": data}, ensure_ascii=False)
+                    self.wfile.write(f"event: error\ndata: {error_data}\n\n".encode("utf-8"))
+                    self.wfile.flush()
+
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            try:
+                error_data = json.dumps({"error": str(exc)}, ensure_ascii=False)
+                self.wfile.write(f"event: error\ndata: {error_data}\n\n".encode("utf-8"))
+                self.wfile.flush()
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------ #
     #  Skills CRUD — 写文件 + 同步 DB                                      #

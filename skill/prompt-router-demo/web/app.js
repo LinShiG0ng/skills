@@ -8,6 +8,7 @@
   const apiParam = new URLSearchParams(window.location.search).get("api");
   const apiBase = apiParam || "http://127.0.0.1:8010";
   const apiChat = `${apiBase}/api/chat`;
+  const apiChatStream = `${apiBase}/api/chat/stream`;
   const apiSkills = `${apiBase}/api/skills`;
   const apiSession = `${apiBase}/api/session`;
 
@@ -295,7 +296,7 @@
     historyEl.innerHTML = html;
   }
 
-  // 发送问题
+  // 发送问题（流式输出）
   const sendQuestion = async () => {
     const question = questionEl.value.trim();
     if (!question) {
@@ -310,8 +311,8 @@
       console.log("Created new session:", currentSessionId);
     }
 
-    setStatus("⏳ 请求中...");
-    answerEl.textContent = "AI 正在思考...";
+    setStatus("⏳ 连接中...");
+    answerEl.textContent = "";
     segmentsEl.textContent = "-";
     if (newlyLoadedEl) newlyLoadedEl.textContent = "-";
     sendBtn.disabled = true;
@@ -320,53 +321,101 @@
     conversationHistory.push({ role: "user", content: question });
     updateHistoryDisplay();
 
+    let fullAnswer = "";
+
     try {
-      const response = await fetch(apiChat, {
+      const response = await fetch(apiChatStream, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           question,
-          session_id: currentSessionId 
+          session_id: currentSessionId
         }),
       });
 
-      const data = await response.json();
-      
       if (!response.ok) {
-        throw new Error(data.error || "请求失败");
+        const errorData = await response.json();
+        throw new Error(errorData.error || "请求失败");
       }
 
-      // 更新 session ID
-      if (data.session_id) {
-        currentSessionId = data.session_id;
-        updateSessionDisplay();
-      }
+      setStatus("⏳ AI 正在回答...");
 
-      // 显示结果
-      const skills = data.skills || [];
-      const newlyLoaded = data.newly_loaded_skills || [];
-      
-      segmentsEl.textContent = skills.join(", ") || "-";
-      
-      if (newlyLoadedEl) {
-        if (newlyLoaded.length > 0) {
-          newlyLoadedEl.textContent = `🆕 ${newlyLoaded.join(", ")}`;
-          newlyLoadedEl.style.color = "#4CAF50";
-          highlightNewSkills(newlyLoaded);
-        } else if (skills.length > 0) {
-          newlyLoadedEl.textContent = "✅ 复用已加载的技能";
-          newlyLoadedEl.style.color = "#2196F3";
-        } else {
-          newlyLoadedEl.textContent = "-";
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // 处理 SSE 格式数据
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || ""; // 保留不完整的行
+
+        for (const line of lines) {
+          if (line.startsWith("event: ")) {
+            const eventType = line.slice(7).trim();
+            continue;
+          }
+
+          if (line.startsWith("data: ")) {
+            const dataStr = line.slice(6);
+            try {
+              const data = JSON.parse(dataStr);
+
+              // 根据数据内容判断事件类型
+              if (data.session_id && data.skills) {
+                // meta 事件
+                currentSessionId = data.session_id;
+                updateSessionDisplay();
+
+                const skills = data.skills || [];
+                const newlyLoaded = data.newly_loaded_skills || [];
+
+                segmentsEl.textContent = skills.join(", ") || "-";
+
+                if (newlyLoadedEl) {
+                  if (newlyLoaded.length > 0) {
+                    newlyLoadedEl.textContent = `🆕 ${newlyLoaded.join(", ")}`;
+                    newlyLoadedEl.style.color = "#4CAF50";
+                    highlightNewSkills(newlyLoaded);
+                  } else if (skills.length > 0) {
+                    newlyLoadedEl.textContent = "✅ 复用已加载的技能";
+                    newlyLoadedEl.style.color = "#2196F3";
+                  }
+                }
+              } else if (data.content !== undefined) {
+                // chunk 事件
+                fullAnswer += data.content;
+                answerEl.textContent = fullAnswer;
+                // 自动滚动到底部
+                answerEl.scrollTop = answerEl.scrollHeight;
+              } else if (data.answer !== undefined) {
+                // done 事件
+                fullAnswer = data.answer;
+                answerEl.textContent = fullAnswer;
+                setStatus("✅ 完成");
+              } else if (data.error) {
+                // error 事件
+                throw new Error(data.error);
+              }
+            } catch (parseError) {
+              // 忽略解析错误，可能是不完整的 JSON
+              if (dataStr.trim() && !dataStr.includes("[DONE]")) {
+                console.warn("Parse error:", parseError, "Data:", dataStr);
+              }
+            }
+          }
         }
       }
-      
-      answerEl.textContent = data.answer || "";
-      setStatus("✅ 完成");
 
       // 添加到历史
-      conversationHistory.push({ role: "assistant", content: data.answer });
-      updateHistoryDisplay();
+      if (fullAnswer) {
+        conversationHistory.push({ role: "assistant", content: fullAnswer });
+        updateHistoryDisplay();
+      }
 
       // 清空输入
       questionEl.value = "";

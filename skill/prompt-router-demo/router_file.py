@@ -564,6 +564,69 @@ def answer(question: str, session_id: str = "default") -> dict:
     }
 
 
+def answer_stream(question: str, session_id: str = "default"):
+    """
+    流式处理用户问题，生成器模式。
+
+    Yields:
+        Tuple[str, Any]: (event_type, data)
+        - ("meta", {session_id, skills, newly_loaded_skills})
+        - ("chunk", content_str)
+        - ("done", {answer})
+        - ("error", error_message)
+    """
+    manager = get_skill_manager()
+    client = QwenClient()
+
+    try:
+        prompt, skills, newly_loaded = manager.build_prompt_progressive(question, session_id)
+        history = manager.get_history(session_id)
+        messages = build_messages_with_history(prompt, question, history)
+
+        print(f"\n{'='*60}")
+        print(f"[Question] {question}")
+        print(f"[Session] {session_id}")
+        print(f"[Involved Skills] {', '.join(skills)}")
+        print(f"[Newly Loaded] {'NEW: ' + ', '.join(sorted(newly_loaded)) if newly_loaded else 'REUSE'}")
+        print(f"[Prompt Length] {len(prompt)} chars (~{len(prompt) // 4} tokens)")
+        print(f"[Mode] Streaming")
+        print(f"{'='*60}\n")
+
+        # 先发送元数据
+        yield ("meta", {
+            "session_id": session_id,
+            "skills": skills,
+            "newly_loaded_skills": list(newly_loaded),
+        })
+
+        # 流式获取 AI 响应
+        full_answer = ""
+        for chunk in client.chat_stream(messages):
+            full_answer += chunk
+            yield ("chunk", chunk)
+
+        # 保存到历史
+        manager.add_to_history(session_id, question, full_answer)
+
+        log_event("chat_stream", {
+            "session_id": session_id,
+            "question": question,
+            "skills": skills,
+            "newly_loaded_skills": list(newly_loaded),
+            "prompt_length": len(prompt),
+            "answer_length": len(full_answer),
+            "storage_backend": "file"
+        })
+
+        print(f"[Answer] {full_answer[:100]}...")
+        yield ("done", {"answer": full_answer})
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        yield ("error", str(e))
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         print("Usage: python router_file.py \"<question>\" [session_id]")
